@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "jvc-projector"
+version = "0.0.0"
+description = "Client library to control JVC projectors over TCP/IP"
+authors = [ "Sam McKelvie <dev@mckelvie.org>" ]
+license = "MIT"
+keywords = [ "JVC", "projector", "automation", "theater", "home", "protocol", "video", "Ethernet", "TCP", "SDDP" ]
+readme = "README.md"
+homepage = "https://github.com/sammck/jvc-projector"
+repository = "https://github.com/sammck/jvc-projector.git"
+
+
+[tool.poetry.dependencies]
+python = "^3.8"
+typing-extensions = "^4.7.1"
+sddp-discovery-protocol = "^1.3.0"
+
+[tool.poetry.dev-dependencies]
+mypy = "^0.931"
+dunamai = "^1.9.0"
+python-semantic-release = "^7.25.2"
+#pydoc-markdown = "^4.6.0"
+#doc2md = "^0.1.0"
+#Sphinx = "^4.4.0"
+#sphinx-markdown-builder = "^0.5.5"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+jvc-projector = 'jvc_projector.__main__:run'
+
+[tool.semantic_release]
+version_variable = 'jvc_projector/version.py:__version__'
+version_toml = 'pyproject.toml:tool.poetry.version'
+branch = 'main'
+upload_to_pypi = false
+upload_to_release = true
+build_command = "pip install poetry && poetry build"
