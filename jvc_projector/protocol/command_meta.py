@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+"""
+PVC Projector known command codes and metadata.
+
+This module contains the known command codes and metadata for the JVC projector protocol. The information in
+this module is derived from JVC's documentation here:
+
+https://support.jvc.com/consumer/support/documents/DILAremoteControlGuide.pdf
+"""
 from __future__ import annotations
 
 from ..internal_types import *
@@ -7,6 +15,7 @@ from ..internal_types import *
 CommandCode = bytes
 
 class CommandGroupMeta:
+    """Metadata for a group of commands with a common command code prefix as described in the documentation"""
     name: str
     """Name of the command group"""
 
@@ -63,6 +72,7 @@ class CommandGroupMeta:
 _G = CommandGroupMeta
 
 class CommandMeta:
+    """Metadata for a single command in a command group"""
     command_group: CommandGroupMeta
     name: str
     command_prefix: bytes
@@ -75,6 +85,7 @@ class CommandMeta:
 
 _C = CommandMeta
 
+# The following is an exhaustive list of all known commands and their metadata, as described in the JVC documentation.
 _group_metas: List[CommandGroupMeta] = [
     _G("power", b'\x50\x57', commands=[
         _C("on", b'\x31', "Power - On"),
@@ -459,20 +470,57 @@ _group_metas: List[CommandGroupMeta] = [
         _C("vertical_position_down", b'\x41\x44', "Vertical Position \u2013 (X3/X7/X9/X30/X70/X90/RS40/50/60/45/55/65)"),
         _C("vertical_position_up", b'\x41\x43', "Vertical Position + (X3/X7/X9/X30/X70/X90/RS40/50/60/45/55/65)"),
         # {{ end_ir_code_list }}
-      ])
+      ]),
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+      # The re
+      _G("power_status", b'\x50\x57', [
+              _C("query", b'', "Query Power status => 0x30=Standby, 0x31=On, 0x32=Cooling, 0x33=Warming, 0x34=Emergency"),
+            ],
+            response_payload_length=1
+        ),
+      _G("input_status", b'\x49\x50', [
+              _C("query", b'', "Query current video input => 0x30=S-Video, 0x31=Video, 0x32=Component, 0x33=PC, 0x36=HDMI 1, 0x37=HDMI 2"),
+            ],
+            response_payload_length=1
+        ),
+      _G("gamma_table_status", b'\x47\x54', [
+              _C("query", b'', "Query current gamma table selection => 0x30=Normal, 0x31=A, 0x32=B, 0x33=C, 0x34=Custom 1, 0x35=Custom 2, 0x36=Custom 3"),
+            ],
+            response_payload_length=1
+        ),
+      _G("gamma_value_status", b'\x47\x50', [
+              _C("query", b'', "Query current gamma value => 0x30=1.8, 0x31=1.9, 0x32=2.0, 0x33=2.1, 0x34=2.2, 0x35=2.3, 0x36=2.4, 0x37=2.5, 0x38=2.6"),
+            ],
+            response_payload_length=1
+        ),
+      _G("source_status", b'\x47\x50', [
+              _C("query", b'', "Query current video source status => 0x00=JVC Logo displayed, 0x30=No signal, 0x31=Signal detected"),
+            ],
+            response_payload_length=1
+        ),
+      # The model codes are 14 bytes long; First 10 bytes are always 'ILAFPJ -- '.
+      # Known model codes are:
+      # "ILAFPJ -- B5A2": "DLA-NZ8",   # Undocumented; discovered empirically
+      # "ILAFPJ -- -XH4": "DLA-HD350",
+      # "ILAFPJ -- -XH7": "DLA-RS10",
+      # "ILAFPJ -- -XH5": "DLA-HD750,DLA-RS20",
+      # "ILAFPJ -- -XH8": "DLA-HD550",
+      # "ILAFPJ -- -XHA": "DLA-RS15",
+      # "ILAFPJ -- -XH9": "DLA-HD950,DLA-HD990,DLA-RS25,DLA-RS35",
+      # "ILAFPJ -- -XHB": "DLA-X3,DLA-RS40",
+      # "ILAFPJ -- -XHC": "DLA-X7,DLA-X9,DLA-RS50,DLA-RS60",
+      # "ILAFPJ -- -XHE": "DLA-X30,DLA-RS45",
+      # "ILAFPJ -- -XHF": "DLA-X70R,DLA-X90R,DLA-RS55,DLA-RS65",
+      _G("model_status", b'\x47\x50', [
+              _C("query", b'', "Query current model status => 14-byte model code. First 10 bytes are always b'ILAFPJ -- '"),
+            ],
+            response_payload_length=14
+        ),
   ]
 
+command_metas: Dict[str, CommandMeta] = {}
+for _group in _group_metas:
+    for _command in _group.commands.values():
+        _cmd_name = f"{_group.name}.{_command.name}"
+        assert not _cmd_name in command_metas
+        command_metas[_cmd_name] = _command
