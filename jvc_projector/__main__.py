@@ -17,11 +17,14 @@ from signal import SIGINT, SIGTERM
 
 from jvc_projector.internal_types import *
 
-from jvc_projector import (
-    __version__ as pkg_version,
+from sddp_discovery_protocol import (
     SddpClient,
     SddpSearchRequest,
     SddpResponseInfo,
+  )
+
+from jvc_projector import (
+    __version__ as pkg_version,
   )
 
 
