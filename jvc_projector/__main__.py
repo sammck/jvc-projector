@@ -27,7 +27,6 @@ from jvc_projector import (
     __version__ as pkg_version,
   )
 
-
 class CmdExitError(RuntimeError):
     exit_code: int
 

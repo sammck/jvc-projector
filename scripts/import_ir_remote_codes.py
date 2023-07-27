@@ -18,7 +18,7 @@ def fmt_bytes(b: bytes) -> str:
     """Formats a bytes object as a python literal with only hex escapes, e.g., b'\x01\x02\x03' -> "b'\\x01\\x02\\x03'"""
     return "b'" + "".join('\\x' + f"{x:02x}" for x in b) + "'"
 
-def main():
+def main() -> int:
     # logging.basicConfig(level=logging.DEBUG)
 
     cmd_name_map: Dict[bytes, Tuple[int, List[str]]] = {}   # Maps command prefix to tuple(next unused name index, list of names)
@@ -52,11 +52,11 @@ def main():
             if not hex_bytes.endswith(ir_remote_code_fixed_suffix):
                 raise RuntimeError(f"Line {line_no}: IR remote code does not end with {fmt_bytes(ir_remote_code_fixed_suffix)}: {fmt_bytes(hex_bytes)}")
             cmd_prefix = hex_bytes[7:9]
-            i_next_name, cmd_name_list = cmd_name_map.get(cmd_prefix, (0, None))
-            if cmd_name_list is None:
-                cmd_name_list = []
-                cmd_name_map[cmd_prefix] = (0, cmd_name_list)
-            if i_next_name >= len(cmd_name_list):
+            i_next_name, cmd_name_list2 = cmd_name_map.get(cmd_prefix, (0, None))
+            if cmd_name_list2 is None:
+                cmd_name_list2 = []
+                cmd_name_map[cmd_prefix] = (0, cmd_name_list2)
+            if i_next_name >= len(cmd_name_list2):
                 cmd_name = description
                 if '(' in cmd_name:
                     cmd_name = cmd_name[:cmd_name.index('(')]
@@ -89,10 +89,10 @@ def main():
                 while cmd_name in cmds_by_name:
                     cmd_name = f"{bare_cmd_name}_v{k}"
                     k += 1
-                cmd_name_list.append(cmd_name)
+                cmd_name_list2.append(cmd_name)
             else:
-                cmd_name = cmd_name_list[i_next_name]
-            cmd_name_map[cmd_prefix] = (i_next_name + 1, cmd_name_list)
+                cmd_name = cmd_name_list2[i_next_name]
+            cmd_name_map[cmd_prefix] = (i_next_name + 1, cmd_name_list2)
             cmds_by_name[cmd_name] = (cmd_prefix, description)
 
     cmd_name_json = {}
@@ -128,6 +128,7 @@ def main():
 
     sys.stdout.flush()
     print(f"Successfully imported {n} named commands", file=sys.stderr)
+    return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
