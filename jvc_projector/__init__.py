@@ -9,6 +9,8 @@ JVC projectors via their proprietary TCP/IP protocol.
 
 from .version import __version__
 
+from .pkg_logging import logger
+
 from .internal_types import Jsonable, JsonableDict
 
 from .exceptions import JvcProjectorError

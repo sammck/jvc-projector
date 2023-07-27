@@ -135,7 +135,6 @@ class CommandGroupMeta:
         self.is_advanced = is_advanced or response_payload_length is None or response_payload_length > 0
         self.payload_length = payload_length
         self.response_payload_length = response_payload_length
-        self.commands = commands if not commands is None else {}
         self.commands = {}
         assert len(commands) > 0
         for i, command in enumerate(commands):

@@ -6,6 +6,7 @@ from ..internal_types import *
 from ..exceptions import JvcProjectorError
 from .packet import Packet, PacketType
 from .response import JvcResponse
+from ..pkg_logging import logger
 
 class JvcCommand:
     """A command to a JVC projector"""
@@ -99,10 +100,10 @@ class JvcCommand:
               )
 
     async def __call__(self, session: JvcProjectorSession) -> JvcResponse:
-        logging.debug(f"Sending command {self}")
+        logger.debug(f"Sending command {self}")
         basic_response_packet, advanced_response_packet = await session.transact(self.command_packet)
         response = self.create_response(basic_response_packet, advanced_response_packet=advanced_response_packet)
-        logging.debug(f"Received response {response}")
+        logger.debug(f"Received response {response}")
         return response
 
     def create_response(self, basic_response_packet: Packet, advanced_response_packet: Optional[Packet]=None) -> JvcResponse:
