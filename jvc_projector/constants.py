@@ -30,24 +30,3 @@ PJREQ = b"PJREQ"
 
 PJACK = b"PJACK"
 """Sent by the projector in response to a successful authentication. Note there is no terminating newline."""
-
-# Protocol packets:
-#
-#   All packets sent to or received from the projector are of the form:
-#       <packet_type_byte> 89 01 <two_byte_command_code> <packet_payload> 0A
-#
-#   The 0A byte is a newline character, and is the terminating byte for all packets. It is
-#   never present in any of the other portions of a packet.
-#
-
-PACKET_MAGIC = b"\x89\x01"
-"""The magic bytes that follow the packet type in all packets sent to or received from the projector."""
-
-END_OF_PACKET = 0x0a
-"""The terminating byte for all packets sent to or received from the projector."""
-
-MAX_PACKET_LENGTH = 30
-"""The maximum length of a packet sent to or received from the projector, in bytes."""
-
-MIN_PACKET_LENGTH = 6
-"""The minimum length of a packet sent to or received from the projector, in bytes."""

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .internal_types import *
-
+from .exceptions import JvcProjectorError
 
 import argparse
 import logging
@@ -37,21 +37,27 @@ class PacketType(Enum):
     BASIC_RESPONSE = 0x06
     ADVANCED_RESPONSE = 0x40
 
-
-class JvcProjectorException(Exception):
-    """An exception raised by the JVC projector client package"""
-    pass
-
 class Packet:
     """
-    All packets sent to or received from the projector are of the raw form:
+    Encapsulation of a single protocol "packet" sent over the TCP/IP socket in either
+    direction.
+
+    All packets sent to or received from the projector (after initial auth handshake)
+    are of the raw form:
+
         <packet_type_byte> 89 01 <two_byte_command_code> <packet_payload> 0A
 
-    The 0A byte is a newline character, and is the terminating byte for all packets. It is
+    packet_type_byte is one of the PacketType values.
+
+    The 0A byte is a newline b'\n' character, and is the terminating byte for all packets. It is
     never present in any of the other portions of a packet.
 
-    The two-byte command code in responses is the same as the command code in the
-    corresponding command packet.
+    The two-byte command code in responses from the projector is the same as the
+    two-byte command code in the corresponding command packet.
+
+    The packet_payload is the portion of the packet after the command code and before the
+    terminating newline character. The payload is optional, and may be empty. If present,
+    its content is determined by the packet type and command code.
     """
 
     raw_data: bytes
@@ -116,15 +122,15 @@ class Packet:
 
     def validate(self) -> None:
         if len(self.raw_data) < MIN_PACKET_LENGTH:
-            raise JvcProjectorException(f"Packet too short: {self}")
+            raise JvcProjectorError(f"Packet too short: {self}")
         if len(self.raw_data) > MAX_PACKET_LENGTH:
-            raise JvcProjectorException(f"Packet too long: {self}")
+            raise JvcProjectorError(f"Packet too long: {self}")
         if self.packet_magic != PACKET_MAGIC:
-            raise JvcProjectorException(f"Packet magic validator byte mismatch: {self}")
+            raise JvcProjectorError(f"Packet magic validator byte mismatch: {self}")
         if not self.packet_final_byte == END_OF_PACKET:
-            raise JvcProjectorException(f"Packet does not end in newline: {self}")
+            raise JvcProjectorError(f"Packet does not end in newline: {self}")
         if self.packet_type == PacketType.UNKNOWN:
-            raise JvcProjectorException(f"Unrecognized packet type byte {self.packet_type_byte:02x}: {self}")
+            raise JvcProjectorError(f"Unrecognized packet type byte {self.packet_type_byte:02x}: {self}")
 
     @property
     def is_basic_command(self) -> bool:
@@ -159,9 +165,9 @@ class Packet:
     @classmethod
     def create(cls, packet_type: PacketType, command_code: bytes, payload: Optional[bytes]=None) -> Packet:
         if packet_type == PacketType.UNKNOWN:
-            raise JvcProjectorException(f"Cannot create packet of UNKNOWN type")
+            raise JvcProjectorError(f"Cannot create packet of UNKNOWN type")
         if len(command_code) != 2:
-            raise JvcProjectorException(f"Command code not 2 bytes: {command_code.hex(' ')}")
+            raise JvcProjectorError(f"Command code not 2 bytes: {command_code.hex(' ')}")
         if payload is None:
             payload = b''
         raw_data = bytes([packet_type.value]) + PACKET_MAGIC + command_code + payload + bytes([END_OF_PACKET])
@@ -210,24 +216,24 @@ class JvcResponse:
 
     def __init__(self, command: JvcCommand, basic_response_packet: Packet, advanced_response_packet: Optional[Packet]=None):
         if not basic_response_packet.is_basic_response:
-            raise JvcProjectorException(f"Basic response packet expected: {basic_response_packet}")
+            raise JvcProjectorError(f"Basic response packet expected: {basic_response_packet}")
         if basic_response_packet.command_code != command.command_code:
-            raise JvcProjectorException(f"Basic response packet command code {basic_response_packet.command_code.hex(' ')} does not match command {command}: {basic_response_packet}")
+            raise JvcProjectorError(f"Basic response packet command code {basic_response_packet.command_code.hex(' ')} does not match command {command}: {basic_response_packet}")
         if len(basic_response_packet.packet_payload) != 0:
-            raise JvcProjectorException(f"Basic response packet payload expected to be empty, but got: {basic_response_packet}")
+            raise JvcProjectorError(f"Basic response packet payload expected to be empty, but got: {basic_response_packet}")
         if command.is_advanced:
             if advanced_response_packet is None:
-                raise JvcProjectorException(f"Advanced command {command} requires advanced response packet, but got: {advanced_response_packet}")
+                raise JvcProjectorError(f"Advanced command {command} requires advanced response packet, but got: {advanced_response_packet}")
             if not advanced_response_packet.is_advanced_response:
-                raise JvcProjectorException(f"Advanced response packet expected, but got: {advanced_response_packet}")
+                raise JvcProjectorError(f"Advanced response packet expected, but got: {advanced_response_packet}")
             if advanced_response_packet.command_code != command.command_code:
-                raise JvcProjectorException(f"Advanced response packet command code {advanced_response_packet.command_code.hex(' ')} does not match command {command}: {advanced_response_packet}")
+                raise JvcProjectorError(f"Advanced response packet command code {advanced_response_packet.command_code.hex(' ')} does not match command {command}: {advanced_response_packet}")
             if not command.expected_payload_length is None:
                 if len(advanced_response_packet.packet_payload) != command.expected_payload_length:
-                    raise JvcProjectorException(f"Advanced response packet payload length {len(advanced_response_packet.packet_payload)} does not match command {command} expected length {command.expected_payload_length}: {advanced_response_packet}")
+                    raise JvcProjectorError(f"Advanced response packet payload length {len(advanced_response_packet.packet_payload)} does not match command {command} expected length {command.expected_payload_length}: {advanced_response_packet}")
         else:
             if not advanced_response_packet is None:
-                raise JvcProjectorException(f"Basic command {command} does not expect an advanced response packet")
+                raise JvcProjectorError(f"Basic command {command} does not expect an advanced response packet")
         self.command = command
         self.basic_response_packet = basic_response_packet
         self.advanced_response_packet = advanced_response_packet
@@ -283,7 +289,7 @@ class JvcCommand:
           ):
         command_packet.validate()
         if not command_packet.packet_type in (PacketType.BASIC_COMMAND, PacketType.ADVANCED_COMMAND):
-            raise JvcProjectorException(f"Cannot create JvcCommand from non-command packet: {command_packet}")
+            raise JvcProjectorError(f"Cannot create JvcCommand from non-command packet: {command_packet}")
         self.name = name
         self.command_packet = command_packet
         self.response_cls = response_cls
@@ -412,7 +418,7 @@ class OneByteReturnCodeResponse(JvcResponse):
 
     def post_init(self) -> None:
         if len(self.payload) != 1:
-            raise JvcProjectorException(f"{self}: expected 1-byte payload, got {len(self.payload)}")
+            raise JvcProjectorError(f"{self}: expected 1-byte payload, got {len(self.payload)}")
 
     @property
     def return_code(self) -> int:
@@ -466,7 +472,7 @@ class ModelStatusResponse(JvcResponse):
 
     def post_init(self) -> None:
         if len(self.payload) != 14:
-            raise JvcProjectorException(f"{self}: expected 14-byte payload, got {len(self.payload)}")
+            raise JvcProjectorError(f"{self}: expected 14-byte payload, got {len(self.payload)}")
         self.model_id = self.payload.decode('utf-8')
 
     @property
@@ -567,16 +573,16 @@ class JvcProjectorSession:
         packet_bytes = await asyncio.wait_for(self.reader.readline(), self.timeout_secs)
         logging.debug(f"Read packet bytes: {packet_bytes.hex(' ')}")
         if len(packet_bytes) == 0:
-            raise JvcProjectorException("Connection closed by projector")
+            raise JvcProjectorError("Connection closed by projector")
         if packet_bytes[-1] != 0x0a:
-            raise JvcProjectorException(f"Connection closed by projector with partial packet: {packet_bytes.hex(' ')}")
+            raise JvcProjectorError(f"Connection closed by projector with partial packet: {packet_bytes.hex(' ')}")
         try:
             result = Packet(packet_bytes)
             result.validate()
         except Exception as e:
-            raise JvcProjectorException(f"Invalid response packet received from projector: {packet_bytes.hex(' ')}") from e
+            raise JvcProjectorError(f"Invalid response packet received from projector: {packet_bytes.hex(' ')}") from e
         if not result.is_response:
-            raise JvcProjectorException(f"Received packet is not a response: {result}")
+            raise JvcProjectorError(f"Received packet is not a response: {result}")
         return result
 
     async def read_response_packets(self, command_code: bytes, is_advanced: bool=False) -> Tuple[Packet, Optional[Packet]]:
@@ -584,15 +590,15 @@ class JvcProjectorSession:
         basic_response_packet = await self.read_response_packet()
         advanced_response_packet: Optional[Packet] = None
         if basic_response_packet.command_code != command_code:
-            raise JvcProjectorException(f"Received response packet for wrong command code (expected {command_code.hex(' ')}): {basic_response_packet}")
+            raise JvcProjectorError(f"Received response packet for wrong command code (expected {command_code.hex(' ')}): {basic_response_packet}")
         if basic_response_packet.is_advanced_response:
-            raise JvcProjectorException(f"Received advanced response packet before basic response packet: {basic_response_packet}")
+            raise JvcProjectorError(f"Received advanced response packet before basic response packet: {basic_response_packet}")
         if is_advanced:
             advanced_response_packet = await self.read_response_packet()
             if advanced_response_packet.command_code != command_code:
-                raise JvcProjectorException(f"Received second response packet for wrong command code (expected {command_code.hex(' ')}): {advanced_response_packet}")
+                raise JvcProjectorError(f"Received second response packet for wrong command code (expected {command_code.hex(' ')}): {advanced_response_packet}")
             if not advanced_response_packet.is_advanced_response:
-                raise JvcProjectorException(f"Received second basic response packet instead of advanced response packet: {advanced_response_packet}")
+                raise JvcProjectorError(f"Received second basic response packet instead of advanced response packet: {advanced_response_packet}")
         return (basic_response_packet, advanced_response_packet)
 
     async def read_exactly(self, length: int) -> bytes:
@@ -691,7 +697,7 @@ class JvcProjectorSession:
         logging.debug(f"Handshake: Waiting for greeting")
         greeting = await self.read_exactly(len(PJ_OK))
         if greeting != PJ_OK:
-            raise JvcProjectorException(f"Handshake: Unexpected greeting (expected {PJ_OK}): {greeting.hex}")
+            raise JvcProjectorError(f"Handshake: Unexpected greeting (expected {PJ_OK}): {greeting.hex}")
         logging.debug(f"Handshake: Received greeting: {greeting.hex(' ')}")
         # newer projectors (e.g., DLA-NX8) require a password to be appended to the PJREQ blob
         # (with an underscore separator). Older projectors (e.g., DLA-X790) do not accept a password.
@@ -701,7 +707,7 @@ class JvcProjectorSession:
         pjack = await asyncio.wait_for(self.reader.readexactly(len(PJACK)), self.timeout_secs)
         logging.debug(f"Handshake: Read exactly {len(pjack)} bytes: {pjack.hex(' ')}")
         if pjack != PJACK:
-            raise JvcProjectorException(f"Handshake: Unexpected ack (expected {PJACK.hex(' ')}): {pjack.hex(' ')}")
+            raise JvcProjectorError(f"Handshake: Unexpected ack (expected {PJACK.hex(' ')}): {pjack.hex(' ')}")
         logging.info(f"Handshake: {self} connected and authenticated")
 
     def __str__(self) -> str:
@@ -766,63 +772,3 @@ async def run_command(session: JvcProjectorSession, argv: List[str]) -> None:
         raise ValueError(f"Unknown command: {cmdname}")
 
 async def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--port", default=20554, type=int,
-        help="JVC projector port number to connect to. Default: 20554")
-    parser.add_argument("-t", "--timeout", default=2.0, type=float,
-        help="Timeout for network operations (seconds). Default: 2.0")
-    parser.add_argument("-l", "--loglevel", default="ERROR",
-        help="Logging level. Default: ERROR.",
-        choices=["ERROR", "WARNING", "INFO", "DEBUG"])
-    parser.add_argument("-p", "--password", default=None,
-        help="Password to use when connecting to newer JVC hosts (e.g., DLA-NZ8). Default: use ENV var JVC_PROJECTOR_PASSWORD, or no password.")
-    parser.add_argument("-H", "--host", help="JVC projector hostname or IP address. Default: Use env var JVC_PROJECTOR_HOST")
-    parser.add_argument('command', nargs='*', default=[])
-
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.getLevelName(args.loglevel),
-        format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d] %(message)s",
-        datefmt="%F %H:%M:%S")
-
-    password: Optional[str] = args.password
-    if password is None:
-        password = os.getenv("JVC_PROJECTOR_PASSWORD")
-    if not password is None and password == '':
-        password = None
-
-    host: Optional[str] = args.host
-    if host is None:
-        host = os.getenv("JVC_PROJECTOR_HOST")
-        if host is None:
-            raise Exception("No projector host specified. Use --host or set env var JVC_PROJECTOR_HOST")
-
-    port: int = args.port
-    timeout_secs: float = args.timeout
-    cmd_args: List[str] = args.command
-
-
-    projector = JvcProjector(
-        host,
-        port=port,
-        password=password,
-        timeout_secs=timeout_secs)
-
-
-    async with await projector.connect() as session:
-        await session.command(null_command)
-        power_status = await session.cmd_power_status()
-        print(f"Power status: {power_status}")
-        model_name = await session.cmd_model_name()
-        print(f"Model name: {model_name}")
-        if len(cmd_args) > 0:
-            await run_command(session, cmd_args)
-            power_status = await session.cmd_power_status()
-            print(f"Power status: {power_status}")
-
-if __name__ == "__main__":
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(main())

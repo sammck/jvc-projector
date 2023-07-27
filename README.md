@@ -111,6 +111,12 @@ jvc-projector is distributed under the terms of the [MIT License](https://openso
 The license applies to this file and other files in the [GitHub repository](http://github.com/sammck/jvc-projector)
 hosting this file.
 
+References
+----------
+
+* [Hubitat community thread](https://community.openhab.org/t/binding-request-jvc-projector/2519/21)
+* [JVC D-ILA Projector RS-232C, LAN and Infrared Remote Control Guide](https://support.jvc.com/consumer/support/documents/DILAremoteControlGuide.pdf)
+
 Authors and history
 ---------------------------
 

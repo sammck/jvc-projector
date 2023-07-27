@@ -15,17 +15,15 @@ import asyncio
 import logging
 from signal import SIGINT, SIGTERM
 
-from sddp_discovery_protocol.internal_types import *
+from jvc_projector.internal_types import *
 
-from sddp_discovery_protocol import (
+from jvc_projector import (
     __version__ as pkg_version,
     SddpClient,
     SddpSearchRequest,
     SddpResponseInfo,
-    SddpDatagram,
-    CaseInsensitiveDict,
-    DEFAULT_RESPONSE_WAIT_TIME,
   )
+
 
 class CmdExitError(RuntimeError):
     exit_code: int
@@ -57,59 +55,6 @@ class CommandHandler:
     async def cmd_bare(self) -> int:
         print("A command is required", file=sys.stderr)
         return 1
-
-    async def cmd_server(self) -> int:
-        async def notify_handler(info: SddpAdvertisementInfo) -> None:
-            results: List[JsonableDict] = []
-            datagram = info.datagram
-            header_dict: Dict[str, str] = dict(datagram.headers)
-            summary: JsonableDict = {
-                "sddp_version": info.sddp_version,
-                "src_addr": f"{info.src_addr[0]}:{info.src_addr[1]}",
-                "local_addr": f"{info.socket_binding.unicast_addr[0]}:{info.socket_binding.unicast_addr[1]}",
-                "headers": header_dict,
-                "monotonic_time": info.monotonic_time,
-                "utc_time": info.utc_time.isoformat(),
-            }
-            if datagram.body is not None and len(datagram.body) > 0:
-                summary["body"] = base64.b64encode(datagram.body).decode('ascii')
-
-            print(json.dumps(summary, indent=2, sort_keys=True))
-
-        advertise_interval: float = self._args.advertise_interval
-        headers = self._parse_arg_headers(self._args.headers)
-        bind_addresses: Optional[List[str]] = self._args.bind_addresses
-        if not bind_addresses is None and len(bind_addresses) == 0:
-            bind_addresses = None
-        server = SddpServer(advertise_interval=advertise_interval, device_headers=headers, bind_addresses=bind_addresses)
-        server.add_notify_handler(notify_handler)
-        if not self._provide_traceback:
-            async def sigint_cleanup() -> None:
-                try:
-                    await asyncio.shield(server.final_result)
-                    logging.debug("sigint_cleanup: Server exited without SIGINT/SIGTERM; exiting")
-                except asyncio.CancelledError:
-                    logging.debug("sigint_cleanup: Detected SIGINT/SIGTERM, cancelling server")
-                    if server.final_result.done():
-                        logging.debug("sigint_cleanup: Server already had final_result set--no effect")
-                    server.set_final_exception(CmdExitError(1, "Server terminated with SIGINT or SIGTERM"))
-            loop = asyncio.get_running_loop()
-            sig_task = asyncio.create_task(sigint_cleanup())
-            for signal in (SIGINT, SIGTERM):
-                loop.add_signal_handler(signal, sig_task.cancel)
-        try:
-            async with server as s:
-                await s.wait_for_done()
-        finally:
-            if not self._provide_traceback:
-                for signal in (SIGINT, SIGTERM):
-                    loop.remove_signal_handler(signal)
-                sig_task.cancel()
-                try:
-                    await sig_task
-                except asyncio.CancelledError:
-                    pass
-        return 0
 
     async def discover_projector(self, bind_addresses: Optional[List[str]]=None) -> Optional[SddpResponseInfo]:
         if not bind_addresses is None and len(bind_addresses) == 0:
@@ -238,3 +183,61 @@ async def arun(argv: Optional[Sequence[str]]=None) -> int:
 if __name__ == "__main__":
     sys.exit(run())
 
+'''
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--port", default=20554, type=int,
+        help="JVC projector port number to connect to. Default: 20554")
+    parser.add_argument("-t", "--timeout", default=2.0, type=float,
+        help="Timeout for network operations (seconds). Default: 2.0")
+    parser.add_argument("-l", "--loglevel", default="ERROR",
+        help="Logging level. Default: ERROR.",
+        choices=["ERROR", "WARNING", "INFO", "DEBUG"])
+    parser.add_argument("-p", "--password", default=None,
+        help="Password to use when connecting to newer JVC hosts (e.g., DLA-NZ8). Default: use ENV var JVC_PROJECTOR_PASSWORD, or no password.")
+    parser.add_argument("-H", "--host", help="JVC projector hostname or IP address. Default: Use env var JVC_PROJECTOR_HOST")
+    parser.add_argument('command', nargs='*', default=[])
+
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.getLevelName(args.loglevel),
+        format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d] %(message)s",
+        datefmt="%F %H:%M:%S")
+
+    password: Optional[str] = args.password
+    if password is None:
+        password = os.getenv("JVC_PROJECTOR_PASSWORD")
+    if not password is None and password == '':
+        password = None
+
+    host: Optional[str] = args.host
+    if host is None:
+        host = os.getenv("JVC_PROJECTOR_HOST")
+        if host is None:
+            raise Exception("No projector host specified. Use --host or set env var JVC_PROJECTOR_HOST")
+
+    port: int = args.port
+    timeout_secs: float = args.timeout
+    cmd_args: List[str] = args.command
+
+
+    projector = JvcProjector(
+        host,
+        port=port,
+        password=password,
+        timeout_secs=timeout_secs)
+
+
+    async with await projector.connect() as session:
+        await session.command(null_command)
+        power_status = await session.cmd_power_status()
+        print(f"Power status: {power_status}")
+        model_name = await session.cmd_model_name()
+        print(f"Model name: {model_name}")
+        if len(cmd_args) > 0:
+            await run_command(session, cmd_args)
+            power_status = await session.cmd_power_status()
+            print(f"Power status: {power_status}")
+
+'''
