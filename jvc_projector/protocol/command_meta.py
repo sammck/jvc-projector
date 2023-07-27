@@ -7,6 +7,8 @@ This module contains the known command codes and metadata for the JVC projector 
 this module is derived from JVC's documentation here:
 
 https://support.jvc.com/consumer/support/documents/DILAremoteControlGuide.pdf
+
+There is no protocol implementation here; only metadata about the protocol.
 """
 from __future__ import annotations
 
@@ -577,7 +579,7 @@ _group_metas: List[CommandGroupMeta] = [
             response_payload_length=1,
         ),
       _G("model_status", b'\x47\x50', [
-              _C("query", b'', "Query current model status => 14-byte model code. First 10 bytes are always b'ILAFPJ -- '", response_map=model_status_map),
+              _C("query", b'', "Query current model code", response_map=model_status_map),
             ],
             response_payload_length=14,
         ),
