@@ -456,7 +456,9 @@ power_status_command = PowerStatusCommand()
 
 class ModelStatusResponse(JvcResponse):
     model_map: dict[str, str] = {
-        "ILAFPJ -- B5A2": "DLA-NZ8",
+        "ILAFPJ -- B5A1": "DLA-NZ9,DLA-RS4100",   # Undocumented; discovered empirically
+        "ILAFPJ -- B5A2": "DLA-NZ8,DLA-RS3100",   # Undocumented; discovered empirically
+        "ILAFPJ -- B5A3": "DLA-NZ7,DLA-RS2100",   # Undocumented; discovered empirically
         "ILAFPJ -- -XH4": "DLA-HD350",
         "ILAFPJ -- -XH7": "DLA-RS10",
         "ILAFPJ -- -XH5": "DLA-HD750,DLA-RS20",

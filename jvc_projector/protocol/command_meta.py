@@ -14,6 +14,81 @@ from ..internal_types import *
 
 CommandCode = bytes
 
+
+power_status_map: Dict[bytes, str] = {
+    b"\x30": "Standby",
+    b"\x31": "On",
+    b"\x32": "Cooling",
+    b"\x33": "Warming",   # Not documented; determined empirically
+    b"\x34": "Emergency",
+  }
+"""Response payloads for power_status.query command, and the projector power states they correspond to."""
+
+input_status_map: Dict[bytes, str] = {
+    b"\x30": "S-Video",
+    b"\x31": "Video",
+    b"\x32": "Component",
+    b"\x33": "PC",
+    b"\x36": "HDMI 1",
+    b"\x37": "HDMI 2",
+  }
+"""Response payloads for input_status.query command, and the projector input states they correspond to."""
+
+gamma_table_status_map: Dict[bytes, str] = {
+    b"\x30": "Normal",
+    b"\x31": "A",
+    b"\x32": "B",
+    b"\x33": "C",
+    b"\x34": "Custom 1",
+    b"\x35": "Custom 2",
+    b"\x36": "Custom 3",
+  }
+"""Response payloads for gamma_table_status.query command, and the projector gamma table states they correspond to."""
+
+gamma_value_status_map: Dict[bytes, str] = {
+    b"\x30": "1.8",
+    b"\x31": "1.9",
+    b"\x32": "2.0",
+    b"\x33": "2.1",
+    b"\x34": "2.2",
+    b"\x35": "2.3",
+    b"\x36": "2.4",
+    b"\x37": "2.5",
+    b"\x38": "2.6",
+  }
+"""Response payloads for gamma_value_status.query command, and the projector gamma value states they correspond to."""
+
+source_status_map: Dict[bytes, str] = {
+    b"\x00": "JVC Logo",
+    b"\x30": "No Signal",
+    b"\x31": "Signal OK",
+  }
+"""Response payloads for source_status.query command, and the projector source states they correspond to."""
+
+model_status_list_map: Dict[bytes, List[str]] = {
+    b"ILAFPJ -- B5A1": [ "DLA-NZ9", "DLA-RS4100" ],   # Undocumented; discovered empirically
+    b"ILAFPJ -- B5A2": [ "DLA-NZ8", "DLA-RS3100" ],   # Undocumented; discovered empirically
+    b"ILAFPJ -- B5A3": [ "DLA-NZ7", "DLA-RS2100" ],   # Undocumented; discovered empirically
+    b"ILAFPJ -- -XH4": [ "DLA-HD350" ],
+    b"ILAFPJ -- -XH7": [ "DLA-RS10" ],
+    b"ILAFPJ -- -XH5": [ "DLA-HD750", "DLA-RS20" ],
+    b"ILAFPJ -- -XH8": [ "DLA-HD550" ],
+    b"ILAFPJ -- -XHA": [ "DLA-RS15" ],
+    b"ILAFPJ -- -XH9": [ "DLA-HD950", "DLA-HD990", "DLA-RS25", "DLA-RS35" ],
+    b"ILAFPJ -- -XHB": [ "DLA-X3", "DLA-RS40" ],
+    b"ILAFPJ -- -XHC": [ "DLA-X7", "DLA-X9", "DLA-RS50", "DLA-RS60" ],
+    b"ILAFPJ -- -XHE": [ "DLA-X30", "DLA-RS45" ],
+    b"ILAFPJ -- -XHF": [ "DLA-X70R", "DLA-X90R", "DLA-RS55", "DLA-RS65" ],
+  }
+"""Response payloads for model_status.query command, and the list of projector models they correspond to.
+   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '.
+"""
+
+model_status_map: Dict[bytes, str] = dict((k, ",".join(v)) for k, v in model_status_list_map.items())
+"""Response payloads for model_status.query command, and the comma-delimited projector models they correspond to.
+   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '.
+"""
+
 class CommandGroupMeta:
     """Metadata for a group of commands with a common command code prefix as described in the documentation"""
     name: str
@@ -77,11 +152,13 @@ class CommandMeta:
     name: str
     command_prefix: bytes
     description: Optional[str]
+    response_map: Optional[Dict[bytes, str]]
 
-    def __init__(self, name: str, command_prefix: bytes, description: Optional[str]):
+    def __init__(self, name: str, command_prefix: bytes, description: Optional[str]=None, response_map: Optional[Dict[bytes, str]]=None):
         self.name = name
         self.command_prefix = command_prefix
         self.description = description
+        self.response_map = response_map
 
 _C = CommandMeta
 
@@ -472,49 +549,37 @@ _group_metas: List[CommandGroupMeta] = [
         # {{ end_ir_code_list }}
       ]),
 
-      # The re
+      # the remaining command groups are advanced commands with advanced response payloads
+
       _G("power_status", b'\x50\x57', [
-              _C("query", b'', "Query Power status => 0x30=Standby, 0x31=On, 0x32=Cooling, 0x33=Warming, 0x34=Emergency"),
+              _C("query", b'', "Query Power status", response_map=power_status_map),
             ],
-            response_payload_length=1
+            response_payload_length=1,
         ),
       _G("input_status", b'\x49\x50', [
-              _C("query", b'', "Query current video input => 0x30=S-Video, 0x31=Video, 0x32=Component, 0x33=PC, 0x36=HDMI 1, 0x37=HDMI 2"),
+              _C("query", b'', "Query current video input", response_map=input_status_map),
             ],
-            response_payload_length=1
+            response_payload_length=1,
         ),
       _G("gamma_table_status", b'\x47\x54', [
-              _C("query", b'', "Query current gamma table selection => 0x30=Normal, 0x31=A, 0x32=B, 0x33=C, 0x34=Custom 1, 0x35=Custom 2, 0x36=Custom 3"),
+              _C("query", b'', "Query current gamma table selection", response_map=gamma_table_status_map),
             ],
-            response_payload_length=1
+            response_payload_length=1,
         ),
       _G("gamma_value_status", b'\x47\x50', [
-              _C("query", b'', "Query current gamma value => 0x30=1.8, 0x31=1.9, 0x32=2.0, 0x33=2.1, 0x34=2.2, 0x35=2.3, 0x36=2.4, 0x37=2.5, 0x38=2.6"),
+              _C("query", b'', "Query current gamma value", response_map=gamma_value_status_map),
             ],
-            response_payload_length=1
+            response_payload_length=1,
         ),
       _G("source_status", b'\x47\x50', [
-              _C("query", b'', "Query current video source status => 0x00=JVC Logo displayed, 0x30=No signal, 0x31=Signal detected"),
+              _C("query", b'', "Query current video source status", response_map=source_status_map),
             ],
-            response_payload_length=1
+            response_payload_length=1,
         ),
-      # The model codes are 14 bytes long; First 10 bytes are always 'ILAFPJ -- '.
-      # Known model codes are:
-      # "ILAFPJ -- B5A2": "DLA-NZ8",   # Undocumented; discovered empirically
-      # "ILAFPJ -- -XH4": "DLA-HD350",
-      # "ILAFPJ -- -XH7": "DLA-RS10",
-      # "ILAFPJ -- -XH5": "DLA-HD750,DLA-RS20",
-      # "ILAFPJ -- -XH8": "DLA-HD550",
-      # "ILAFPJ -- -XHA": "DLA-RS15",
-      # "ILAFPJ -- -XH9": "DLA-HD950,DLA-HD990,DLA-RS25,DLA-RS35",
-      # "ILAFPJ -- -XHB": "DLA-X3,DLA-RS40",
-      # "ILAFPJ -- -XHC": "DLA-X7,DLA-X9,DLA-RS50,DLA-RS60",
-      # "ILAFPJ -- -XHE": "DLA-X30,DLA-RS45",
-      # "ILAFPJ -- -XHF": "DLA-X70R,DLA-X90R,DLA-RS55,DLA-RS65",
       _G("model_status", b'\x47\x50', [
-              _C("query", b'', "Query current model status => 14-byte model code. First 10 bytes are always b'ILAFPJ -- '"),
+              _C("query", b'', "Query current model status => 14-byte model code. First 10 bytes are always b'ILAFPJ -- '", response_map=model_status_map),
             ],
-            response_payload_length=14
+            response_payload_length=14,
         ),
   ]
 
