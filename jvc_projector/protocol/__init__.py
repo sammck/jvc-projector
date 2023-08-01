@@ -25,3 +25,10 @@ from .command import (
     BasicCommand,
     AdvancedCommand
   )
+
+from .handshake import (
+    PJ_OK,
+    PJREQ,
+    PJACK,
+    PJNAK,
+)

@@ -18,11 +18,11 @@ from abc import ABC, abstractmethod
 
 from ..internal_types import *
 from ..exceptions import JvcProjectorError
-from ..constants import DEFAULT_TIMEOUT
+from ..constants import DEFAULT_TIMEOUT, DEFAULT_PORT
 from ..pkg_logging import logger
-from ..protocol import Packet
-from .client_transport import JvcProjectorClientTransport
+from ..protocol import Packet, PJ_OK, PJREQ, PJACK, PJNAK
 
+from .client_transport import JvcProjectorClientTransport
 '''
 class JvcProjectorSession:
     reader: Optional[asyncio.StreamReader] = None
@@ -212,6 +212,9 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
+    host: str
+    port: int
+    password: Optional[str] = None
     timeout_secs: float
     final_status: Future[None]
     reader_closed: bool = False
@@ -223,7 +226,16 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     about mixing up response packets."""
 
 
-    def __init__(self, timeout_secs: float = DEFAULT_TIMEOUT) -> None:
+    def __init__(
+            self,
+            host: str,
+            password: Optional[str]=None,
+            port: int=DEFAULT_PORT,
+            timeout_secs: float = DEFAULT_TIMEOUT
+          ) -> None:
+        self.host = host
+        self.port = port
+        self.password = password
         self.timeout_secs = timeout_secs
         self.final_status = asyncio.Future()
         self.transaction_lock = asyncio.Lock()
@@ -454,9 +466,66 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
             await self.shutdown(e)
         finally:
             if not self.final_status.done():
-                self.final_status.set_result(None)
+                await self.shutdown()
         await self.final_status
 
     async def __aenter__(self) -> TcpJvcProjectorClientTransport:
         """Enters a context that will close the transport on exit."""
         return self
+
+    async def connect(self) -> None:
+        try:
+            async with self.transaction_lock:
+                try:
+                    assert self.reader is None and self.writer is None
+                    logger.debug(f"Connecting to projector at {self.host}:{self.port}")
+                    self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+                    # Perform the initial handshake. This is a bit weird, since the projector
+                    # sends a greeting, then we send a request, then the projector sends an
+                    # acknowledgement, but none of these include a terminating newline.
+                    logger.debug(f"Handshake: Waiting for greeting")
+                    greeting = await self._read_exactly(len(PJ_OK))
+                    if greeting != PJ_OK:
+                        raise JvcProjectorError(f"Handshake: Unexpected greeting (expected {PJ_OK.hex(' ')}): {greeting.hex(' ')}")
+                    logger.debug(f"Handshake: Received greeting: {greeting.hex(' ')}")
+                    # newer projectors (e.g., DLA-NX8) require a password to be appended to the PJREQ blob
+                    # (with an underscore separator). Older projectors (e.g., DLA-X790) do not accept a password.
+                    req_data = PJREQ
+                    if not self.password is None and len(self.password) > 0:
+                        req_data += b'_' + self.password.encode('utf-8')
+                        logger.debug(f"Handshake: writing auth data: {PJREQ.hex(' ')} + _<password>")
+                    else:
+                        logger.debug(f"Handshake: writing hello data: {PJREQ.hex(' ')}")
+                    await self._write_exactly(req_data)
+                    pjack = await self._read_exactly(len(PJACK))
+                    logger.debug(f"Handshake: Read exactly {len(pjack)} bytes: {pjack.hex(' ')}")
+                    if pjack == PJNAK:
+                        raise JvcProjectorError(f"Handshake: Authentication failed (bad password?)")
+                    elif pjack != PJACK:
+                        raise JvcProjectorError(f"Handshake: Unexpected ack (expected {PJACK.hex(' ')}): {pjack.hex(' ')}")
+                    logger.info(f"Handshake: {self} connected and authenticated")
+                except BaseException as e:
+                    await self.shutdown(e)
+                    raise
+        except BaseException as e:
+            await self.aclose(e)
+            raise
+
+    @classmethod
+    async def create(
+            cls,
+            host: str,
+            password: Optional[str]=None,
+            port: int=DEFAULT_PORT,
+            timeout_secs: float=DEFAULT_TIMEOUT
+          ) -> Self:
+        transport = cls(host, password=password, port=port, timeout_secs=timeout_secs)
+        await transport.connect()
+        # on error, the transport will be shut down, and no further interaction is possible
+        return transport
+
+    def __str__(self) -> str:
+        return f"TcpJvcProjectorClientTransport({self.host}:{self.port})"
+
+    def __repr__(self) -> str:
+        return str(self)
