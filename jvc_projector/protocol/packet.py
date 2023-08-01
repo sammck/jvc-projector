@@ -1,3 +1,8 @@
+# Copyright (c) 2023 Samuel J. McKelvie
+#
+# MIT License - See LICENSE file accompanying this package.
+#
+
 """
 Encapsulation of a single JVC projector protocol "packet" sent over the TCP/IP socket in either
 """

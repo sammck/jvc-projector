@@ -34,6 +34,7 @@ from typing import (
     Sequence,
   )
 
+from types import TracebackType
 from typing_extensions import Self
 
 JsonableTypes = ( str, int, float, bool, dict, list )

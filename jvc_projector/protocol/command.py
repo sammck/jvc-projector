@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+# Copyright (c) 2023 Samuel J. McKelvie
+#
+# MIT License - See LICENSE file accompanying this package.
+#
 
 from __future__ import annotations
 
@@ -7,7 +10,6 @@ from ..exceptions import JvcProjectorError
 from .packet import Packet, PacketType
 from .response import JvcResponse
 from ..pkg_logging import logger
-from .transport import JvcProjectorTransport
 class JvcCommand:
     """A command to a JVC projector"""
     name: str
@@ -99,12 +101,6 @@ class JvcCommand:
                 expected_payload_length=expected_payload_length
               )
 
-    async def __call__(self, transport: JvcProjectorTransport) -> JvcResponse:
-        logger.debug(f"Sending command {self}")
-        basic_response_packet, advanced_response_packet = await transport.transact(self.command_packet)
-        response = self.create_response(basic_response_packet, advanced_response_packet=advanced_response_packet)
-        logger.debug(f"Received response {response}")
-        return response
 
     def create_response(self, basic_response_packet: Packet, advanced_response_packet: Optional[Packet]=None) -> JvcResponse:
         response =  self.response_cls(self, basic_response_packet, advanced_response_packet=advanced_response_packet)
