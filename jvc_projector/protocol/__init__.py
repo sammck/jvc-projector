@@ -10,8 +10,16 @@ Refer to https://support.jvc.com/consumer/support/documents/DILAremoteControlGui
 for the official protocol documentation.
 """
 
-from .packet import (
+from .constants import (
     PacketType,
+    PACKET_MAGIC,
+    END_OF_PACKET,
+    END_OF_PACKET_BYTES,
+    MAX_PACKET_LENGTH,
+    MIN_PACKET_LENGTH,
+  )
+
+from .packet import (
     Packet,
   )
 

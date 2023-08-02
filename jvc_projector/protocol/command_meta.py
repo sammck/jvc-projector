@@ -6,8 +6,8 @@
 """
 PVC Projector known command codes and metadata.
 
-This module contains the known command codes and metadata for the JVC projector protocol. The information in
-this module is derived from JVC's documentation here:
+This module contains the known command codes and metadata for the JVC projector protocol.
+Much of the information in this module is derived from JVC's documentation here:
 
 https://support.jvc.com/consumer/support/documents/DILAremoteControlGuide.pdf
 
@@ -16,9 +16,15 @@ There is no protocol implementation here; only metadata about the protocol.
 from __future__ import annotations
 
 from ..internal_types import *
+from ..exceptions import JvcProjectorError
+from .constants import (
+    PacketType,
+    PACKET_MAGIC,
+    END_OF_PACKET_BYTES,
+  )
 
 CommandCode = bytes
-
+"""A command code. Always a 2-byte byte string."""
 
 power_status_map: Dict[bytes, str] = {
     b"\x30": "Standby",
@@ -27,7 +33,8 @@ power_status_map: Dict[bytes, str] = {
     b"\x33": "Warming",   # Not documented; determined empirically
     b"\x34": "Emergency",
   }
-"""Response payloads for power_status.query command, and the projector power states they correspond to."""
+"""Response payloads for power_status.query command, and the projector power
+   states they correspond to."""
 
 input_status_map: Dict[bytes, str] = {
     b"\x30": "S-Video",
@@ -37,7 +44,8 @@ input_status_map: Dict[bytes, str] = {
     b"\x36": "HDMI 1",
     b"\x37": "HDMI 2",
   }
-"""Response payloads for input_status.query command, and the projector input states they correspond to."""
+"""Response payloads for input_status.query command, and the projector input
+   states they correspond to."""
 
 gamma_table_status_map: Dict[bytes, str] = {
     b"\x30": "Normal",
@@ -48,7 +56,8 @@ gamma_table_status_map: Dict[bytes, str] = {
     b"\x35": "Custom 2",
     b"\x36": "Custom 3",
   }
-"""Response payloads for gamma_table_status.query command, and the projector gamma table states they correspond to."""
+"""Response payloads for gamma_table_status.query command, and the projector gamma
+   table states they correspond to."""
 
 gamma_value_status_map: Dict[bytes, str] = {
     b"\x30": "1.8",
@@ -61,14 +70,16 @@ gamma_value_status_map: Dict[bytes, str] = {
     b"\x37": "2.5",
     b"\x38": "2.6",
   }
-"""Response payloads for gamma_value_status.query command, and the projector gamma value states they correspond to."""
+"""Response payloads for gamma_value_status.query command, and the projector gamma
+   value states they correspond to."""
 
 source_status_map: Dict[bytes, str] = {
     b"\x00": "JVC Logo",
     b"\x30": "No Signal",
     b"\x31": "Signal OK",
   }
-"""Response payloads for source_status.query command, and the projector source states they correspond to."""
+"""Response payloads for source_status.query command, and the projector source
+   states they correspond to."""
 
 model_status_list_map: Dict[bytes, List[str]] = {
     b"ILAFPJ -- B5A1": [ "DLA-NZ9", "DLA-RS4100" ],   # Undocumented; discovered empirically
@@ -85,14 +96,14 @@ model_status_list_map: Dict[bytes, List[str]] = {
     b"ILAFPJ -- -XHE": [ "DLA-X30", "DLA-RS45" ],
     b"ILAFPJ -- -XHF": [ "DLA-X70R", "DLA-X90R", "DLA-RS55", "DLA-RS65" ],
   }
-"""Response payloads for model_status.query command, and the list of projector models they correspond to.
-   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '.
-"""
+"""Response payloads for model_status.query command, and the list of projector
+   models they correspond to.
+   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '."""
 
 model_status_map: Dict[bytes, str] = dict((k, ",".join(v)) for k, v in model_status_list_map.items())
-"""Response payloads for model_status.query command, and the comma-delimited projector models they correspond to.
-   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '.
-"""
+"""Response payloads for model_status.query command, and the comma-delimited
+   projector models they correspond to.
+   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '."""
 
 class CommandGroupMeta:
     """Metadata for a group of commands with a common command code prefix as described in the documentation"""
@@ -123,6 +134,10 @@ class CommandGroupMeta:
     commands: Dict[str, CommandMeta]
     """Set of commands in this group, indexed by command name unique within the group."""
 
+    group_packet_prefix: bytes
+    """The complete packet prefix for commands in this group, including the packet type, magic bytes,
+       command_code, and group_prefix."""
+
     def __init__(
             self,
             name: str,
@@ -138,6 +153,11 @@ class CommandGroupMeta:
         self.is_advanced = is_advanced or response_payload_length is None or response_payload_length > 0
         self.payload_length = payload_length
         self.response_payload_length = response_payload_length
+        packet_type = PacketType.ADVANCED_COMMAND if self.is_advanced else PacketType.BASIC_COMMAND
+
+        self.group_packet_prefix = (
+            bytes([packet_type.value]) + PACKET_MAGIC + self.command_code +
+              self.group_prefix)
         self.commands = {}
         assert len(commands) > 0
         for i, command in enumerate(commands):
@@ -163,6 +183,37 @@ class CommandMeta:
         self.command_prefix = command_prefix
         self.description = description
         self.response_map = response_map
+
+    @property
+    def packet_prefix(self) -> bytes:
+        """The complete packet prefix for this command, including the packet type, magic bytes,
+           command_code, group_prefix, and command_prefix."""
+        return self.command_group.group_packet_prefix + self.command_prefix
+
+    @property
+    def command_code(self) -> CommandCode:
+        """The two-byte command code for this command"""
+        return self.command_group.command_code
+
+    @property
+    def is_advanced(self) -> bool:
+        """True iff this command is an advanced command that receives
+           an advanced response."""
+        return self.command_group.is_advanced
+
+    @property
+    def payload_length(self) -> Optional[int]:
+        """Fixed length of the payload of this command, which follows the command_prefix, if known. Zero if there is no
+           payload. None if the payload is variable in size.
+
+           Currently all commands have 0-byte payloads, so this is always 0."""
+        return self.command_group.payload_length
+
+    @property
+    def response_payload_length(self) -> Optional[int]:
+        """Fixed length of the payload of the advanced response, if known.
+           0 for basic commands. None if the payload is variable in size."""
+        return self.command_group.response_payload_length
 
 _C = CommandMeta
 
@@ -587,9 +638,51 @@ _group_metas: List[CommandGroupMeta] = [
         ),
   ]
 
-command_metas: Dict[str, CommandMeta] = {}
+
+_command_metas: Dict[str, CommandMeta] = {}
+"""A dictionary of all command metas, keyed by {group_name}.{command name}."""
+
 for _group in _group_metas:
     for _command in _group.commands.values():
         _cmd_name = f"{_group.name}.{_command.name}"
-        assert not _cmd_name in command_metas
-        command_metas[_cmd_name] = _command
+        assert not _cmd_name in _command_metas
+        _command_metas[_cmd_name] = _command
+
+def name_to_command_meta(name: str) -> CommandMeta:
+    """Returns the command meta for the given command name in the form {group_name}.{command_name}"""
+    result = _command_metas.get(name, None)
+    if result is None:
+        raise JvcProjectorError(f"Unknown command name: {name}")
+    return result
+
+
+_command_metas_by_bytes: Dict[bytes, List[CommandMeta]] = {}
+"""A dictionary of all command metas, keyed by the packet bytes. This assumes that all
+   commands have 0-byte payloads, which is currently the case. If that changes, a more
+   sophisticated approach will be needed, such as a prefix tree. Note that there are
+   a few commands on different projectors that have the same bytes, so the value is
+   a list."""
+
+for _group in _group_metas:
+    for _command in _group.commands.values():
+        assert _command.payload_length == 0, "Currently only 0-byte command payloads are supported"
+        _cmd_bytes = _command.packet_prefix + END_OF_PACKET_BYTES
+        _cmd_list = _command_metas_by_bytes.get(_cmd_bytes, None)
+        if _cmd_list is None:
+            _cmd_list = []
+            _command_metas_by_bytes[_cmd_bytes] = _cmd_list
+        _cmd_list.append(_command)
+
+def bytes_to_command_meta(packet_bytes: bytes) -> List[CommandMeta]:
+    """Returns a list of command metas for the given command packet bytes.
+
+    Note that there are a few commands on different projectors that have
+    the same bytes, so the returned value is a list.
+
+    If the bytes are not recognized, an empty list is returned.
+    """
+    # Since currently all commands have 0-byte payloads, we can just use the bytes
+    # as the key into a dict. If that changes, we'll need a more sophisticated
+    # approach, such as a prefix tree.
+    result = _command_metas_by_bytes.get(packet_bytes, [])
+    return result
