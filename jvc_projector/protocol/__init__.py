@@ -30,8 +30,6 @@ from .response import (
 
 from .command import (
     JvcCommand,
-    BasicCommand,
-    AdvancedCommand
   )
 
 from .handshake import (

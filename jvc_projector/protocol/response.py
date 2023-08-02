@@ -47,9 +47,9 @@ class JvcResponse:
                 raise JvcProjectorError(f"Advanced response packet expected, but got: {advanced_response_packet}")
             if advanced_response_packet.command_code != command.command_code:
                 raise JvcProjectorError(f"Advanced response packet command code {advanced_response_packet.command_code.hex(' ')} does not match command {command}: {advanced_response_packet}")
-            if not command.expected_payload_length is None:
-                if len(advanced_response_packet.packet_payload) != command.expected_payload_length:
-                    raise JvcProjectorError(f"Advanced response packet payload length {len(advanced_response_packet.packet_payload)} does not match command {command} expected length {command.expected_payload_length}: {advanced_response_packet}")
+            if not command.response_payload_length is None:
+                if len(advanced_response_packet.packet_payload) != command.response_payload_length:
+                    raise JvcProjectorError(f"Advanced response packet payload length {len(advanced_response_packet.packet_payload)} does not match command {command} expected response payload length {command.response_payload_length}: {advanced_response_packet}")
         else:
             if not advanced_response_packet is None:
                 raise JvcProjectorError(f"Basic command {command} does not expect an advanced response packet")
@@ -64,7 +64,7 @@ class JvcResponse:
 
     @property
     def name(self) -> str:
-        return self.command.name
+        return f"Response<{self.command.name}>"
 
     @property
     def raw_data(self) -> bytes:
@@ -77,7 +77,7 @@ class JvcResponse:
         return data
 
     def __str__(self) -> str:
-        return f"JvcResponse({self.name}: [{self.raw_data.hex(' ')}])"
+        return f"JvcResponse({self.command.name}: [{self.raw_data.hex(' ')}])"
 
     @property
     def is_advanced(self) -> bool:

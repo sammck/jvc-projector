@@ -86,6 +86,11 @@ class Packet:
         return self.raw_data[5:-1]
 
     @property
+    def payload_length(self) -> int:
+        """The length of the payload, in bytes"""
+        return len(self.packet_payload)
+
+    @property
     def packet_final_byte(self) -> int:
         """The terminating byte of the packet. Should always be 0x0a."""
         return self.raw_data[-1]
