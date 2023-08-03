@@ -15,6 +15,7 @@ There is no protocol implementation here; only metadata about the protocol.
 """
 from __future__ import annotations
 
+from ..pkg_logging import logger
 from ..internal_types import *
 from ..exceptions import JvcProjectorError
 from .constants import (
@@ -204,7 +205,7 @@ class CommandMeta:
         """The complete command prefix for this command, including the group prefix
            and the command_additional_prefix. Does not include the packet type,
            magic bytes, or command_code."""
-        return self.command_group.group_packet_prefix + self.command_additional_prefix
+        return self.command_group.group_prefix + self.command_additional_prefix
 
     @property
     def command_prefix_length(self) -> int:
@@ -254,7 +255,7 @@ class CommandMeta:
            command_prefix_length."""
         if self.payload_length is None:
             return None
-        return self.packet_prefix_length + self.payload_length
+        return self.command_prefix_length + self.payload_length
 
     @property
     def response_payload_length(self) -> Optional[int]:
