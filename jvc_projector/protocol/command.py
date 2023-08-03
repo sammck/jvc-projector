@@ -45,10 +45,10 @@ class JvcCommand:
         self.command_meta = command_meta
         if not command_packet.raw_data.startswith(command_meta.packet_prefix):
             raise JvcProjectorError(f"Command packet does not match command meta prefix {command_meta.packet_prefix.hex(' ')}: {command_packet}")
-        if not command_meta.payload_length is None:
-            if command_packet.payload_length != command_meta.payload_length:
+        if not command_meta.packet_payload_length is None:
+            if command_packet.packet_payload_length != command_meta.packet_payload_length:
                 raise JvcProjectorError(
-                    f"Command packet payload length {command_packet.payload_length} does not match command meta payload length {command_meta.payload_length}: {command_packet}")
+                    f"Command packet payload length {command_packet.packet_payload_length} does not match command meta packet payload length {command_meta.packet_payload_length}: {command_packet}")
 
     @property
     def name(self) -> str:
@@ -66,14 +66,57 @@ class JvcCommand:
         return self.command_packet.command_code
 
     @property
-    def payload_length(self) -> int:
-        """Returns length in bytes of the payload of the command"""
-        return len(self.payload_data)
+    def packet_payload(self) -> bytes:
+        """Returns the raw packet payload of the command packet.
+           This includes the command prefix and the command payload."""
+        return self.command_packet.packet_payload
 
     @property
-    def payload_data(self) -> bytes:
-        """Returns the payload of the command"""
-        return self.command_packet.packet_payload
+    def packet_payload_length(self) -> int:
+        """Returns length in bytes of the raw payload of the command packet.
+           This includes the command prefix and the command payload."""
+        return self.command_packet.packet_payload_length
+
+    @property
+    def payload(self) -> bytes:
+        """Returns the command payload.
+           This includes all bytes after the command prefix and before
+           the END_OF_PACKET byte."""
+        return self.command_packet.packet_payload[self.command_prefix_length:]
+
+    @property
+    def payload_length(self) -> int:
+        """Returns the length in bytes of the command payload.
+           This includes all bytes after the command prefix and before
+           the END_OF_PACKET byte."""
+        return self.packet_payload_length - self.command_prefix_length
+
+    @property
+    def command_prefix(self) -> bytes:
+        """Returns the command prefix of the command. This includes
+           all bytes after command_code and before the command payload."""
+        return self.command_meta.command_prefix
+
+    @property
+    def command_prefix_length(self) -> int:
+        """Returns the length in bytes of the command prefix of the command.
+           This includes all bytes after command_code and before the
+           command payload."""
+        return self.command_meta.command_prefix_length
+
+    @property
+    def packet_prefix(self) -> bytes:
+        """Returns the packet prefix of the command. This includes
+           all bytes before the command payload, including the packet type,
+           packet magic, command code, and command prefix."""
+        return self.command_meta.packet_prefix
+
+    @property
+    def packet_prefix_length(self) -> int:
+        """Returns the length of the packet prefix of the command. This includes
+           all bytes before the command payload, including the packet type,
+           packet magic, command code, and command prefix."""
+        return self.command_meta.packet_prefix_length
 
     @property
     def packet_type(self) -> PacketType:
@@ -106,7 +149,7 @@ class JvcCommand:
         """Creates a basic or advanced JvcCommand from command metadata"""
         if payload is None:
             payload = b''
-        raw_data = command_meta.packet_prefix + payload
+        raw_data = command_meta.packet_prefix + payload + END_OF_PACKET_BYTES
         command_packet = Packet(raw_data)
         return cls(command_packet, command_meta)
 

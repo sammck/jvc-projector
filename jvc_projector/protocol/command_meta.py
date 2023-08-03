@@ -106,7 +106,7 @@ model_status_map: Dict[bytes, str] = dict((k, ",".join(v)) for k, v in model_sta
    The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '."""
 
 class CommandGroupMeta:
-    """Metadata for a group of commands with a common command code prefix as described in the documentation"""
+    """Metadata for a group of commands with a common command prefix as described in the documentation"""
     name: str
     """Name of the command group"""
 
@@ -119,12 +119,12 @@ class CommandGroupMeta:
     is_advanced: bool
     """True iff all commands in the group are advanced commands that receive an advanced response."""
 
-    command_prefix_length: int
+    command_additional_prefix_length: int
     """Length of command prefix which is unique to each command and follows the group_prefix,
        but is the same length for all commands in the group."""
 
     payload_length: Optional[int]
-    """Fixed length of the payload of the command, which follows the command_prefix, if known. Zero if there is no
+    """Fixed length of the payload of the command, which follows the command_additional_prefix, if known. Zero if there is no
        payload. None if the payload is variable in size."""
 
     response_payload_length: Optional[int]
@@ -162,33 +162,68 @@ class CommandGroupMeta:
         assert len(commands) > 0
         for i, command in enumerate(commands):
             if i == 0:
-                self.command_prefix_length = len(command.command_prefix)
+                self.command_additional_prefix_length = len(command.command_additional_prefix)
             else:
-                assert len(command.command_prefix) == self.command_prefix_length
+                assert len(command.command_additional_prefix) == self.command_additional_prefix_length
             assert not command in self.commands
             command.command_group = self
             self.commands[command.name] = command
+
 _G = CommandGroupMeta
 
 class CommandMeta:
     """Metadata for a single command in a command group"""
-    command_group: CommandGroupMeta
-    name: str
-    command_prefix: bytes
-    description: Optional[str]
-    response_map: Optional[Dict[bytes, str]]
 
-    def __init__(self, name: str, command_prefix: bytes, description: Optional[str]=None, response_map: Optional[Dict[bytes, str]]=None):
+    command_group: CommandGroupMeta
+    """The command group to which this command belongs. All commands
+       in a group have the same command_code and group_prefix."""
+
+    name: str
+    """The second part of the command name, unique within the command group.
+       The full command name is f"{command_group.name}.{name}"."""
+
+    command_additional_prefix: bytes
+    """The byte string immediately following the group_prefix
+       that is unique to this command and precedes the payload."""
+
+    description: Optional[str]
+    """A description of the command, if known."""
+
+    response_map: Optional[Dict[bytes, str]]
+    """For advanced commands, a map from a response payload value to a friendly
+       response name, if known."""
+
+    def __init__(self, name: str, command_additional_prefix: bytes, description: Optional[str]=None, response_map: Optional[Dict[bytes, str]]=None):
         self.name = name
-        self.command_prefix = command_prefix
+        self.command_additional_prefix = command_additional_prefix
         self.description = description
         self.response_map = response_map
 
     @property
+    def command_prefix(self) -> bytes:
+        """The complete command prefix for this command, including the group prefix
+           and the command_additional_prefix. Does not include the packet type,
+           magic bytes, or command_code."""
+        return self.command_group.group_packet_prefix + self.command_additional_prefix
+
+    @property
+    def command_prefix_length(self) -> int:
+        """The length of the command prefix for this command, including the group prefix
+           and the command_additional_prefix. Does not include the packet type,
+           magic bytes, or command_code."""
+        return len(self.command_prefix)
+
+    @property
     def packet_prefix(self) -> bytes:
         """The complete packet prefix for this command, including the packet type, magic bytes,
-           command_code, group_prefix, and command_prefix."""
-        return self.command_group.group_packet_prefix + self.command_prefix
+           command_code, group_prefix, and command_additional_prefix."""
+        return self.command_group.group_packet_prefix + self.command_additional_prefix
+
+    @property
+    def packet_prefix_length(self) -> int:
+        """The length of the packet prefix for this command including the packet type, magic bytes,
+           command_code, group_prefix, and command_additional_prefix."""
+        return len(self.packet_prefix)
 
     @property
     def command_code(self) -> CommandCode:
@@ -203,11 +238,23 @@ class CommandMeta:
 
     @property
     def payload_length(self) -> Optional[int]:
-        """Fixed length of the payload of this command, which follows the command_prefix, if known. Zero if there is no
+        """Fixed length of the payload of this command, which follows the
+           command_additional_prefix, if known. Zero if there is no
            payload. None if the payload is variable in size.
 
            Currently all commands have 0-byte payloads, so this is always 0."""
         return self.command_group.payload_length
+
+    @property
+    def packet_payload_length(self) -> Optional[int]:
+        """The length of the packet payload for this command if known, including the
+           command prefix and the command payload. None if the payload is variable in size.
+
+           Currently all commands have 0-byte payloads, so this is always equal to
+           command_prefix_length."""
+        if self.payload_length is None:
+            return None
+        return self.packet_prefix_length + self.payload_length
 
     @property
     def response_payload_length(self) -> Optional[int]:

@@ -28,7 +28,7 @@ class Packet:
     All packets sent to or received from the projector (after initial auth handshake)
     are of the raw form:
 
-        <packet_type_byte> 89 01 <two_byte_command_code> <packet_payload> 0A
+        <packet_type_byte> 89 01 <two_byte_command_code> <command_prefix> <packet_payload> 0A
 
     packet_type_byte is one of the PacketType values.
 
@@ -37,6 +37,9 @@ class Packet:
 
     The two-byte command code in responses from the projector is the same as the
     two-byte command code in the corresponding command packet.
+
+    The command_prefix is an optional bytestring that further identifies
+    the command but is not considered part of the payload.
 
     The packet_payload is the portion of the packet after the command code and before the
     terminating newline character. The payload is optional, and may be empty. If present,
@@ -82,12 +85,14 @@ class Packet:
     @property
     def packet_payload(self) -> bytes:
         """The payload of the packet, excluding the packet type, the magic bytes, the
-           command code, and the terminating newline character."""
+           command code, and the terminating newline character. Note that for
+           command packets this includes the command prefix."""
         return self.raw_data[5:-1]
 
     @property
-    def payload_length(self) -> int:
-        """The length of the payload, in bytes"""
+    def packet_payload_length(self) -> int:
+        """The length of the packet payload, in bytes. Note that for command packets
+           this includes the command prefix."""
         return len(self.packet_payload)
 
     @property
