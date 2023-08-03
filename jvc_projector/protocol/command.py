@@ -152,7 +152,7 @@ class JvcCommand:
         return result
 
     def create_response(self, payload: Optional[bytes]=None) -> JvcResponse:
-        """Creates a JvcResponse from the command"""
+        """Creates a JvcResponse from the command and the response payload"""
         if payload is None:
             payload = b''
         basic_response_packet = self.create_basic_response_packet()
@@ -161,6 +161,15 @@ class JvcCommand:
             advanced_response_packet = self.create_advanced_response_packet(payload)
         elif len(payload) > 0:
             raise JvcProjectorError(f"Invalid response payload length {len(payload)} for basic command {self}: {payload.hex(' ')}")
+        result = JvcResponse(self, basic_response_packet, advanced_response_packet)
+        return result
+
+    def create_response_from_packets(
+            self,
+            basic_response_packet: Packet,
+            advanced_response_packet: Optional[Packet]=None,
+          ) -> JvcResponse:
+        """Creates a JvcResponse from the command and the response packets"""
         result = JvcResponse(self, basic_response_packet, advanced_response_packet)
         return result
 

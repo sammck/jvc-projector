@@ -8,6 +8,8 @@ from __future__ import annotations
 from ..internal_types import *
 from .packet import Packet, PacketType
 from ..exceptions import JvcProjectorError
+from .command_meta import CommandMeta
+
 if TYPE_CHECKING:
     from .command import JvcCommand
 
@@ -67,6 +69,23 @@ class JvcResponse:
         return f"Response<{self.command.name}>"
 
     @property
+    def command_meta(self) -> CommandMeta:
+        return self.command.command_meta
+
+    @property
+    def response_map(self) -> Optional[Dict[bytes, str]]:
+        """Returns a map of response payload to response strings, if any"""
+        return self.command_meta.response_map
+
+    def response_str(self) -> Optional[str]:
+        """Returns a string representation of the response, if any"""
+        result: Optional[str] = None
+        if not self.response_map is None:
+            result = self.response_map.get(self.payload, None)
+
+        return result
+
+    @property
     def raw_data(self) -> bytes:
         """Returns the raw data of the response. If the response is an advanced response,
            the payload of the advanced response packet is appended to the payload of the
@@ -91,15 +110,3 @@ class JvcResponse:
 
     def __repr__(self) -> str:
         return str(self)
-
-class OneByteReturnCodeResponse(JvcResponse):
-    """A response that contains a single byte return code"""
-
-    def post_init(self) -> None:
-        if len(self.payload) != 1:
-            raise JvcProjectorError(f"{self}: expected 1-byte payload, got {len(self.payload)}")
-
-    @property
-    def return_code(self) -> int:
-        return self.payload[0]
-

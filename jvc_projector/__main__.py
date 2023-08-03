@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import argparse
 import json
@@ -16,6 +17,12 @@ import logging
 from signal import SIGINT, SIGTERM
 
 from jvc_projector.internal_types import *
+from jvc_projector import (
+    DEFAULT_PORT,
+    JvcProjectorClient,
+    JvcCommand,
+    JvcResponse,
+  )
 
 from sddp_discovery_protocol import (
     SddpClient,
@@ -83,12 +90,64 @@ class CommandHandler:
         print(proj_ip)
         return 0
 
+    async def cmd_emulator(self) -> int:
+        bind_addr: str = self._args.bind
+        port: int = self._args.port
+        password: Optional[str] = self._args.password
+        from jvc_projector.emulator import JvcProjectorEmulator
+        emulator = JvcProjectorEmulator(
+            password=password,
+            bind_addr=bind_addr,
+            port=port)
+        await emulator.run()
+        return 0
+
+    async def cmd_exec(self) -> int:
+        # parser_exec.add_argument("--port", default=DEFAULT_PORT, type=int,
+        #     help=f"JVC projector port number to connect to. Default: {DEFAULT_PORT}")
+        # parser_exec.add_argument("-p", "--password", default=None,
+        #     help="Password to use for authentication. Default: None (no password required).")
+        # parser_exec.add_argument('--host', default=None,
+        #                     help='''The projector host address. Default: use env var JVC_PROJECTOR_HOST.''')
+        # parser_exec.add_argument('exec_command', nargs=argparse.REMAINDER,
+        #                     help='''One or more named commands to execute; e.g., "power.on".''')
+        port = self._args.port
+        password = self._args.password
+        host = self._args.host
+        if host is None or host == "":
+            host = os.environ.get("JVC_PROJECTOR_HOST", None)
+        if host is None or host == "":
+            raise CmdExitError(1, "No JVC projector host specified")
+        cmd_names = self._args.exec_command
+        if len(cmd_names) == 0:
+            raise CmdExitError(1, "No projector commands specified")
+        async with await JvcProjectorClient.create(host, port=port, password=password) as client:
+            responses: List[JvcResponse] = []
+            for cmd_name in cmd_names:
+                response = await client.transact_by_name(cmd_name)
+                responses.append(response)
+            response_datas: List[JsonableDict] = []
+            for response in responses:
+                command = response.command
+                response_data: JsonableDict = dict(
+                    name=command.name,
+                )
+                payload = response.payload
+                if len(payload) > 0:
+                    response_data["payload_hex"] = response.payload.hex(' ')
+                    response_str = response.response_str()
+                    if not response_str is None:
+                        response_data["response_str"] = response_str
+                response_datas.append(response_data)
+            print(json.dumps(response_datas, indent=2))
+        return 0
+
     async def cmd_version(self) -> int:
         print(pkg_version)
         return 0
 
     async def arun(self) -> int:
-        """Run the sddp command-line tool with provided arguments
+        """Run the jvc-projector command-line tool with provided arguments
 
         Args:
             argv (Optional[Sequence[str]], optional):
@@ -124,6 +183,30 @@ class CommandHandler:
         parser_search.add_argument('-b', '--bind', dest="bind_addresses", action='append', default=[],
                             help='''The local unicast IP address to bind to on the desired subnet. May be repeated. Default: all local non-loopback unicast addresses.''')
         parser_search.set_defaults(func=self.cmd_find_ip)
+
+        # ======================= emulator
+
+        parser_emulator = subparsers.add_parser('emulator', description="Run a projector emulator for testing purposes.")
+        parser_emulator.add_argument("--port", default=DEFAULT_PORT, type=int,
+            help=f"JVC projector port number to connect to. Default: {DEFAULT_PORT}")
+        parser_emulator.add_argument("-p", "--password", default=None,
+            help="Password to use for authentication. Default: None (no password required).")
+        parser_emulator.add_argument('-b', '--bind', default="0.0.0.0",
+                            help='''The local unicast IP address to bind to. Default: 0.0.0.0.''')
+
+        parser_emulator.set_defaults(func=self.cmd_emulator)
+
+        parser_exec = subparsers.add_parser('exec', description="Execute one or more commands in the projector.")
+        parser_exec.add_argument("--port", default=DEFAULT_PORT, type=int,
+            help=f"JVC projector port number to connect to. Default: {DEFAULT_PORT}")
+        parser_exec.add_argument("-p", "--password", default=None,
+            help="Password to use for authentication. Default: None (no password required).")
+        parser_exec.add_argument('--host', default=None,
+                            help='''The projector host address. Default: use env var JVC_PROJECTOR_HOST.''')
+        parser_exec.add_argument('exec_command', nargs=argparse.REMAINDER,
+                            help='''One or more named commands to execute; e.g., "power.on".''')
+
+        parser_exec.set_defaults(func=self.cmd_exec)
 
         # ======================= version
 

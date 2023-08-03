@@ -25,7 +25,6 @@ from .packet import (
 
 from .response import (
     JvcResponse,
-    OneByteReturnCodeResponse
   )
 
 from .command import (

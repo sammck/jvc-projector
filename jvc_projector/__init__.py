@@ -18,3 +18,11 @@ from .exceptions import JvcProjectorError
 from .constants import DEFAULT_PORT, DEFAULT_TIMEOUT, STABLE_POWER_TIMEOUT
 
 from .internal_types import Jsonable, JsonableDict
+
+from .client import JvcProjectorClient
+
+from .protocol import (
+    Packet,
+    JvcCommand,
+    JvcResponse,
+  )
