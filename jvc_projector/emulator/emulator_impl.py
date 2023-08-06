@@ -16,7 +16,16 @@ from enum import Enum
 
 from ..internal_types import *
 from ..pkg_logging import logger
-from ..protocol import Packet, PJ_OK, PJREQ, PJACK, PJNAK, END_OF_PACKET_BYTES
+from ..protocol import (
+    Packet,
+    PJ_OK,
+    PJREQ,
+    PJACK,
+    PJNAK,
+    END_OF_PACKET_BYTES,
+    JvcCommand,
+    JvcResponse,
+  )
 from ..constants import DEFAULT_PORT
 from ..exceptions import JvcProjectorError
 
@@ -225,6 +234,31 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         """Called when a packet is received from a session."""
         self.requests.put_nowait((session, packet))
 
+    async def handle_command(
+            self,
+            session: JvcProjectorEmulatorSession,
+            command: JvcCommand
+          ) -> Union[JvcResponse, bytes, str, None]:
+        """Handle a single command, and return a response.
+        If a JvcResponse is returned, it is used to form and send the response.
+        If None or a 0-byte bytes is returned, a basic response is sent.
+        If a str is returned, it is used to look up an advanced response payload
+           in the command's friendly string response table.
+        """
+        if not command.is_advanced:
+            # Just acknowledge any basic command
+            return None
+
+        rrm = command.reverse_response_map
+        if rrm is None:
+            raise JvcProjectorError(f"No response map for advanced command {command}")
+
+        payloads = sorted(rrm.values())
+        if len(payloads) == 0:
+            raise JvcProjectorError(f"Empty response map for advanced command {command}")
+
+        return payloads[0]
+
     async def handle_request_packet(
             self,
             session: JvcProjectorEmulatorSession,
@@ -239,7 +273,40 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         if not packet.is_command:
             raise JvcProjectorError(f"Invalid command packet type {packet.packet_type}: {packet}")
 
-        raise NotImplementedError()
+        command = JvcCommand.create_from_command_packet(packet)
+        logger.debug(f"{session}: Received command: {command}")
+        gen_response = await self.handle_command(session, command)
+        response: JvcResponse
+        if isinstance(gen_response, JvcResponse):
+            response = gen_response
+        else:
+            basic_response_packet = command.create_basic_response_packet()
+            advanced_response_packet: Optional[Packet] = None
+            if not gen_response is None:
+                response_payload = b''
+                if isinstance(gen_response, str):
+                    opt_response_payload = (
+                            None if command.reverse_response_map is None else
+                            command.reverse_response_map.get(gen_response, None))
+                    if opt_response_payload is None:
+                        raise JvcProjectorError(f"Unknown advanced string response '{gen_response}' for command {command}")
+                    response_payload = opt_response_payload
+                elif isinstance(gen_response, bytes):
+                    response_payload = gen_response
+                else:
+                    raise JvcProjectorError(f"Invalid response type {type(gen_response)} for command {command}")
+                if command.is_advanced:
+                    advanced_response_packet = command.create_advanced_response_packet(response_payload)
+                else:
+                    if len(response_payload) > 0:
+                        raise JvcProjectorError(f"Payload provided for response to basic command {command}: {response_payload.hex(' ')}")
+            response = JvcResponse(command, basic_response_packet, advanced_response_packet)
+
+        packets = [response.basic_response_packet]
+        if not response.advanced_response_packet is None:
+            packets.append(response.advanced_response_packet)
+
+        return packets
 
     async def handle_requests(self) -> None:
         """Handle requests from sessions."""

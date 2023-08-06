@@ -140,6 +140,26 @@ class JvcCommand:
            None if not an advanced command."""
         return self.command_meta.response_map
 
+    @property
+    def reverse_response_map(self) -> Optional[Dict[str, bytes]]:
+        """Map from a friendly response name to a response payload, if known.
+           None if not an advanced command."""
+        return self.command_meta.reverse_response_map
+
+    @classmethod
+    def create_from_command_packet(
+            cls,
+            command_packet: Packet,
+          ) -> Self:
+        """Creates a basic or advanced JvcCommand from a command packet"""
+        command_metas = bytes_to_command_meta(command_packet.raw_data)
+        if len(command_metas) == 0:
+            raise JvcProjectorError(f"Unrecognized command packet: {command_packet}")
+        if len(command_metas) > 1:
+            logger.debug(f"Multiple command metas found for command packet; using first: {command_packet}")
+        command_meta = command_metas[0]
+        return cls(command_packet, command_meta)
+
     @classmethod
     def create_from_meta(
             cls,

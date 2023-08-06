@@ -194,11 +194,19 @@ class CommandMeta:
     """For advanced commands, a map from a response payload value to a friendly
        response name, if known."""
 
+    reverse_response_map: Optional[Dict[str, bytes]]
+    """For advanced commands, a map from a friendly
+       response name to a response payload, if known."""
+
     def __init__(self, name: str, command_additional_prefix: bytes, description: Optional[str]=None, response_map: Optional[Dict[bytes, str]]=None):
         self.name = name
         self.command_additional_prefix = command_additional_prefix
         self.description = description
         self.response_map = response_map
+        if response_map is None:
+            self.reverse_response_map = None
+        else:
+            self.reverse_response_map = dict((v, k) for k, v in response_map.items())
 
     @property
     def command_prefix(self) -> bytes:
