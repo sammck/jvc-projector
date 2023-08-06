@@ -247,7 +247,6 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
             session_and_packet = await self.requests.get()
             try:
                 if session_and_packet is None:
-                    self.requests.task_done()
                     logger.debug("Emulator handler: Received EOF; exiting")
                     break
                 session, packet = session_and_packet

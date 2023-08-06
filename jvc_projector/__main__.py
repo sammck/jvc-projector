@@ -99,18 +99,16 @@ class CommandHandler:
             password=password,
             bind_addr=bind_addr,
             port=port)
-        if not self._provide_traceback:
-            def sigint_cleanup() -> None:
-                emulator.close(CmdExitError(1, "Emulator terminated with SIGINT or SIGTERM"))
-            loop = asyncio.get_running_loop()
-            for signal in (SIGINT, SIGTERM):
-                loop.add_signal_handler(signal, sigint_cleanup)
+        def sigint_cleanup() -> None:
+            emulator.close(CmdExitError(1, "Emulator terminated with SIGINT or SIGTERM"))
+        loop = asyncio.get_running_loop()
+        for signal in (SIGINT, SIGTERM):
+            loop.add_signal_handler(signal, sigint_cleanup)
         try:
             await emulator.run()
         finally:
-            if not self._provide_traceback:
-                for signal in (SIGINT, SIGTERM):
-                    loop.remove_signal_handler(signal)
+            for signal in (SIGINT, SIGTERM):
+                loop.remove_signal_handler(signal)
         return 0
 
     async def cmd_exec(self) -> int:
