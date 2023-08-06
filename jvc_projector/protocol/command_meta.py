@@ -209,6 +209,11 @@ class CommandMeta:
             self.reverse_response_map = dict((v, k) for k, v in response_map.items())
 
     @property
+    def full_name(self) -> str:
+        """The full command name, f"{command_group.name}.{name}"."""
+        return f"{self.command_group.name}.{self.name}"
+
+    @property
     def command_prefix(self) -> bytes:
         """The complete command prefix for this command, including the group prefix
            and the command_additional_prefix. Does not include the packet type,

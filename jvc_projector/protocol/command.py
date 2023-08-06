@@ -52,8 +52,8 @@ class JvcCommand:
 
     @property
     def name(self) -> str:
-        """Returns the name of the command"""
-        return self.command_meta.name
+        """Returns the full name of the command; e.g. f"{group_name}.{command_name}"""
+        return self.command_meta.full_name
 
     @property
     def raw_data(self) -> bytes:
