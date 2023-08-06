@@ -187,13 +187,17 @@ class JvcProjectorEmulatorSession(asyncio.Protocol):
         self.close()
         return True
 
-class JvcProjectorEmulator:
+class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
     password: Optional[str]
     bind_addr: str
     port: int
     sessions: Dict[int, JvcProjectorEmulatorSession]
     next_session_id: int = 0
     requests: asyncio.Queue[Optional[Tuple[JvcProjectorEmulatorSession, Packet]]]
+    server: Optional[asyncio.Server] = None
+    handler_task: Optional[asyncio.Task[None]] = None
+    server_task: Optional[asyncio.Task[None]] = None
+    final_result: asyncio.Future[None]
 
     def __init__(
             self,
@@ -206,6 +210,7 @@ class JvcProjectorEmulator:
         self.port = port
         self.sessions = {}
         self.requests = asyncio.Queue()
+        self.final_result = asyncio.Future()
 
     def alloc_session_id(self, session: JvcProjectorEmulatorSession) -> int:
         result = self.next_session_id
@@ -262,23 +267,88 @@ class JvcProjectorEmulator:
             finally:
                 self.requests.task_done()
 
-    async def run(self) -> None:
-        """Run the emulator.
+    async def finish_start(self) -> None:
+        """Called after the socket is up and running.  Subclasses can override to do additional
+           initialization."""
+        pass
 
-        This method does not return until the emulator is stopped.
-        """
-        handler_task = asyncio.create_task(self.handle_requests())
+    async def run(self) -> None:
+        """Runs the Emulator until it is closed."""
+        async with self:
+            await self.wait_closed()
+
+    async def start(self) -> None:
         try:
             loop = asyncio.get_running_loop()
-            server = await loop.create_server(
+            self.handler_task = asyncio.create_task(self.handle_requests())
+            self.server = await loop.create_server(
                 lambda: JvcProjectorEmulatorSession(self),
                 host=self.bind_addr,
                 port=self.port)
             logger.debug(f"Emulator: Listening on {self.bind_addr}:{self.port}")
-            async with server:
-                await server.serve_forever()
+            await self.server.start_serving()
+            await self.finish_start()
+        except BaseException as e:
+            self.set_final_result(e)
+            try:
+                await self.wait_closed()
+            except BaseException as e:
+                pass
+            raise
+
+    def close(self, exc: Optional[BaseException]=None) -> None:
+        """Stops the Emulator."""
+        self.set_final_result(exc)
+
+    async def wait_closed(self) -> None:
+        """Waits for the emulator to be fully closed. Does not initiate shutdown.
+           Does not raise an exception based on final status."""
+        try:
+            await self.final_result
         finally:
-            logger.debug("Emulator: Server loop terminated; stopping handler task")
-            await self.requests.put(None)
-            await handler_task
-            logger.debug("Emulator: Handler task stopped")
+            try:
+                if self.server is not None:
+                    try:
+                        self.server.close()
+                    finally:
+                        await self.server.wait_closed()
+            finally:
+                self.server = None
+                if self.handler_task is not None:
+                    try:
+                        await self.handler_task
+                    finally:
+                        self.handler_task = None
+
+    async def close_and_wait(self, exc: Optional[BaseException]=None) -> None:
+        self.close(exc)
+        await self.wait_closed()
+
+    def set_final_result(self, exc: Optional[BaseException]=None) -> None:
+        if not self.final_result.done():
+            if exc is None:
+                logger.debug(f"Emulator: Setting final result to success")
+                self.final_result.set_result(None)
+            else:
+                logger.debug(f"Emulator: Setting final exception: {exc}")
+                self.final_result.set_exception(exc)
+            self.requests.put_nowait(None)
+            if self.server is not None:
+                self.server.close()
+
+    async def __aenter__(self) -> JvcProjectorEmulator:
+        await self.start()
+        return self
+
+    async def __aexit__(self,
+            exc_type: Optional[type[BaseException]],
+            exc: Optional[BaseException],
+            tb: Optional[TracebackType]
+      ) -> None:
+        self.set_final_result(exc)
+        try:
+            # ensure that final_result has been awaited
+            await self.wait_closed()
+        except Exception as e:
+            pass
+

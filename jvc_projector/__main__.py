@@ -99,7 +99,18 @@ class CommandHandler:
             password=password,
             bind_addr=bind_addr,
             port=port)
-        await emulator.run()
+        if not self._provide_traceback:
+            def sigint_cleanup() -> None:
+                emulator.close(CmdExitError(1, "Emulator terminated with SIGINT or SIGTERM"))
+            loop = asyncio.get_running_loop()
+            for signal in (SIGINT, SIGTERM):
+                loop.add_signal_handler(signal, sigint_cleanup)
+        try:
+            await emulator.run()
+        finally:
+            if not self._provide_traceback:
+                for signal in (SIGINT, SIGTERM):
+                    loop.remove_signal_handler(signal)
         return 0
 
     async def cmd_exec(self) -> int:
@@ -240,9 +251,9 @@ class CommandHandler:
             if rc != 0:
                 if traceback:
                     raise
-            print(f"sddp: error: {ex}", file=sys.stderr)
+            print(f"jvc-projector: error: {ex}", file=sys.stderr)
         except BaseException as ex:
-            print(f"sddp: Unhandled exception: {ex}", file=sys.stderr)
+            print(f"jvc-projector: Unhandled exception: {ex}", file=sys.stderr)
             raise
 
         return rc
@@ -267,62 +278,3 @@ async def arun(argv: Optional[Sequence[str]]=None) -> int:
 # allow running with "python3 -m", or as a standalone script
 if __name__ == "__main__":
     sys.exit(run())
-
-'''
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--port", default=20554, type=int,
-        help="JVC projector port number to connect to. Default: 20554")
-    parser.add_argument("-t", "--timeout", default=2.0, type=float,
-        help="Timeout for network operations (seconds). Default: 2.0")
-    parser.add_argument("-l", "--loglevel", default="ERROR",
-        help="Logging level. Default: ERROR.",
-        choices=["ERROR", "WARNING", "INFO", "DEBUG"])
-    parser.add_argument("-p", "--password", default=None,
-        help="Password to use when connecting to newer JVC hosts (e.g., DLA-NZ8). Default: use ENV var JVC_PROJECTOR_PASSWORD, or no password.")
-    parser.add_argument("-H", "--host", help="JVC projector hostname or IP address. Default: Use env var JVC_PROJECTOR_HOST")
-    parser.add_argument('command', nargs='*', default=[])
-
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=logging.getLevelName(args.loglevel),
-        format="%(asctime)s %(levelname)s %(filename)s:%(lineno)d] %(message)s",
-        datefmt="%F %H:%M:%S")
-
-    password: Optional[str] = args.password
-    if password is None:
-        password = os.getenv("JVC_PROJECTOR_PASSWORD")
-    if not password is None and password == '':
-        password = None
-
-    host: Optional[str] = args.host
-    if host is None:
-        host = os.getenv("JVC_PROJECTOR_HOST")
-        if host is None:
-            raise Exception("No projector host specified. Use --host or set env var JVC_PROJECTOR_HOST")
-
-    port: int = args.port
-    timeout_secs: float = args.timeout
-    cmd_args: List[str] = args.command
-
-
-    projector = JvcProjector(
-        host,
-        port=port,
-        password=password,
-        timeout_secs=timeout_secs)
-
-
-    async with await projector.connect() as session:
-        await session.command(null_command)
-        power_status = await session.cmd_power_status()
-        print(f"Power status: {power_status}")
-        model_name = await session.cmd_model_name()
-        print(f"Model name: {model_name}")
-        if len(cmd_args) > 0:
-            await run_command(session, cmd_args)
-            power_status = await session.cmd_power_status()
-            print(f"Power status: {power_status}")
-
-'''
