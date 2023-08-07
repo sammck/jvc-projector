@@ -1040,12 +1040,12 @@ _group_metas: List[CommandGroupMeta] = [
             ],
             response_payload_length=1,
         ),
-      _G("source_status", b'\x47\x50', [
+      _G("source_status", b'\x53\x43', [
               _C("query", b'', "Query current video source status", response_map=source_status_map),
             ],
             response_payload_length=1,
         ),
-      _G("model_status", b'\x47\x50', [
+      _G("model_status", b'\x4D\x44', [
               _C("query", b'', "Query current model code", response_map=model_status_map),
             ],
             response_payload_length=14,

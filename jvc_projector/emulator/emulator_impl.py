@@ -17,6 +17,8 @@ from ..internal_types import *
 from ..pkg_logging import logger
 from ..protocol import (
     Packet,
+    JvcModel,
+    models,
     JvcCommand,
     JvcResponse,
   )
@@ -28,6 +30,7 @@ from ..protocol.command_meta import bytes_to_command_meta
 from .session import JvcProjectorEmulatorSession
 
 class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
+    model: JvcModel
     password: Optional[str]
     bind_addr: str
     port: int
@@ -41,10 +44,18 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
 
     def __init__(
             self,
+            model: Optional[Union[JvcModel, str]] = None,
             password: Optional[str] = None,
             bind_addr: Optional[str] = None,
             port: int = DEFAULT_PORT,
           ):
+        if model is None:
+            model = 'DLA-NZ8'
+        if isinstance(model, str):
+            if not model in models:
+                raise JvcProjectorError(f"Unknown model {model}")
+            model = models[model]
+        self.model = model
         self.password = password
         self.bind_addr = '0.0.0.0' if bind_addr is None else bind_addr
         self.port = port
@@ -76,6 +87,11 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         If a str is returned, it is used to look up an advanced response payload
            in the command's friendly string response table.
         """
+
+        if command.name == 'model_status.query':
+            logger.debug(f"{session}: Responding to model_status.query with {self.model}")
+            return self.model.model_status_payload
+
         if not command.is_advanced:
             # Just acknowledge any basic command
             return None
