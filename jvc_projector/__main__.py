@@ -22,6 +22,8 @@ from jvc_projector import (
     JvcProjectorClient,
     JvcCommand,
     JvcResponse,
+    JvcModel,
+    models,
   )
 
 from sddp_discovery_protocol import (
@@ -57,6 +59,7 @@ class CommandHandler:
     _parser: argparse.ArgumentParser
     _args: argparse.Namespace
     _provide_traceback: bool = True
+    _model: Optional[JvcModel] = None
 
     def __init__(self, argv: Optional[Sequence[str]]=None):
         self._argv = argv
@@ -179,6 +182,9 @@ class CommandHandler:
         parser.add_argument('--log-level', dest='log_level', default='warning',
                             choices=['debug', 'info', 'warning', 'error', 'critical'],
                             help='''The logging level to use. Default: warning''')
+        parser.add_argument('--model', default=None,
+                            choices=sorted(models.keys()),
+                            help='''The logging level to use. Default: warning''')
         parser.set_defaults(func=self.cmd_bare)
 
         subparsers = parser.add_subparsers(
@@ -237,6 +243,8 @@ class CommandHandler:
                 level=logging.getLevelName(args.log_level.upper()),
             )
             self._args = args
+            if args.model is not None:
+                self._model = models[args.model]
             func: Callable[[], Awaitable[int]] = args.func
             logging.debug(f"Running command {func.__name__}, tb = {traceback}")
             rc = await func()

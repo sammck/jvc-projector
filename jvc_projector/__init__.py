@@ -25,4 +25,7 @@ from .protocol import (
     Packet,
     JvcCommand,
     JvcResponse,
+    CommandMeta,
+    JvcModel,
+    models,
   )

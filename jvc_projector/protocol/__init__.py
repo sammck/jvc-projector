@@ -37,3 +37,9 @@ from .handshake import (
     PJACK,
     PJNAK,
 )
+
+from .command_meta import (
+    CommandMeta,
+    JvcModel,
+    models
+  )
