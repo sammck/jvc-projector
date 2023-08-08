@@ -11,6 +11,7 @@ from .packet import Packet
 from .response import JvcResponse
 from ..pkg_logging import logger
 from .command_meta import (
+    JvcModel,
     CommandMeta,
     bytes_to_command_meta,
     name_to_command_meta,
@@ -150,14 +151,32 @@ class JvcCommand:
     def create_from_command_packet(
             cls,
             command_packet: Packet,
+            model: Optional[JvcModel]=None,
           ) -> Self:
-        """Creates a basic or advanced JvcCommand from a command packet"""
+        """Creates a basic or advanced JvcCommand from a command packet.
+           If model is provided, it will be used to resolve ambiguities in
+           the command packet (Different projector models occasionally overload
+           command packets for different commands). If multiple commands match
+           the command packet/model, the first one will be used."""
         command_metas = bytes_to_command_meta(command_packet.raw_data)
         if len(command_metas) == 0:
             raise JvcProjectorError(f"Unrecognized command packet: {command_packet}")
         if len(command_metas) > 1:
-            logger.debug(f"Multiple command metas found for command packet; using first: {command_packet}")
-        command_meta = command_metas[0]
+            if not model is None:
+                matching_command_metas = [command_meta for command_meta in command_metas
+                    if command_meta.models is None or model in command_meta.models]
+                if len(matching_command_metas) > 0:
+                    if len(matching_command_metas) == 1:
+                        logger.debug(f"Multiple command metas found for command packet; using model-matching command: {command_packet}")
+                    else:
+                        logger.debug(f"Multiple model-matching command metas found for command packet; using first: {command_packet}")
+                    command_meta = matching_command_metas[0]
+                else:
+                    logger.debug(f"Multiple command metas found for command packet; using first: {command_packet}")
+                    command_meta = command_metas[0]
+        else:
+            # Only one command matches packet; no need to resolve ambiguity
+            command_meta = command_metas[0]
         return cls(command_packet, command_meta)
 
     @classmethod
