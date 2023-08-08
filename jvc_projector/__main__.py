@@ -268,9 +268,12 @@ class CommandHandler:
             if rc != 0:
                 if traceback:
                     raise
-            print(f"jvc-projector: error: {ex}", file=sys.stderr)
+            ex_desc = str(ex)
+            if len(ex_desc) == 0:
+                ex_desc = ex.__class__.__name__
+            print(f"jvc-projector: error: {ex_desc}", file=sys.stderr)
         except BaseException as ex:
-            print(f"jvc-projector: Unhandled exception: {ex}", file=sys.stderr)
+            print(f"jvc-projector: Unhandled exception {ex.__class__.__name__}: {ex}", file=sys.stderr)
             raise
 
         return rc
