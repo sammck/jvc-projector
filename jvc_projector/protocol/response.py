@@ -95,9 +95,6 @@ class JvcResponse:
             data = data[:] + self.advanced_response_packet.raw_data
         return data
 
-    def __str__(self) -> str:
-        return f"JvcResponse({self.command.name}: [{self.raw_data.hex(' ')}])"
-
     @property
     def is_advanced(self) -> bool:
         """Returns True iff the response is an advanced response"""
@@ -107,6 +104,14 @@ class JvcResponse:
     def payload(self) -> bytes:
         """Returns the payload of the advanced response packet, if any"""
         return b'' if self.advanced_response_packet is None else self.advanced_response_packet.packet_payload
+
+    def __str__(self) -> str:
+        response_str = self.response_str()
+        if response_str is None:
+            result = f"JvcResponse({self.command.name}: [{self.raw_data.hex(' ')}])"
+        else:
+            result = f"JvcResponse({self.command.name}: '{response_str}' [{self.raw_data.hex(' ')}])"
+        return result
 
     def __repr__(self) -> str:
         return str(self)

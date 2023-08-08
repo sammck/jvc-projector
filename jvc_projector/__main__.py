@@ -138,7 +138,16 @@ class CommandHandler:
         async with await JvcProjectorClient.create(host, port=port, password=password) as client:
             responses: List[JvcResponse] = []
             for cmd_name in cmd_names:
-                response = await client.transact_by_name(cmd_name)
+                if cmd_name == "on":
+                    response = await client.power_on_wait()
+                elif cmd_name == "start_on":
+                    response = await client.power_on_wait(wait_for_final=False)
+                elif cmd_name == "off":
+                    response = await client.power_off_wait()
+                elif cmd_name == "start_off":
+                    response = await client.power_off_wait(wait_for_final=False)
+                else:
+                    response = await client.transact_by_name(cmd_name)
                 responses.append(response)
             response_datas: List[JsonableDict] = []
             for response in responses:

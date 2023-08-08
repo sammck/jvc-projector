@@ -194,3 +194,8 @@ class JvcProjectorEmulatorSession(asyncio.Protocol):
         self.close()
         return True
 
+    def __str__(self) -> str:
+        return self.description
+
+    def __repr__(self) -> str:
+        return str(self)

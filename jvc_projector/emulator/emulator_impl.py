@@ -49,14 +49,14 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
 
     power_status_payload: bytes
     input_status_payload: bytes
-    gamma_table_payload: bytes
-    gamma_value_payload: bytes
+    gamma_table_status_payload: bytes
+    gamma_value_status_payload: bytes
     source_status_payload: bytes
 
     power_status_query_meta = name_to_command_meta("power_status.query")
     input_status_query_meta = name_to_command_meta("input_status.query")
-    gamma_table_query_meta = name_to_command_meta("gamma_table.query")
-    gamma_value_query_meta = name_to_command_meta("gamma_value.query")
+    gamma_table_status_query_meta = name_to_command_meta("gamma_table_status.query")
+    gamma_value_status_query_meta = name_to_command_meta("gamma_value_status.query")
     source_status_query_meta = name_to_command_meta("source_status.query")
 
     warmup_timer: Optional[asyncio.Task[None]] = None
@@ -93,8 +93,8 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         self.cooldown_time = cooldown_time if cooldown_time is not None else warmup_time
         self.set_power_status_str(initial_power_status)
         self.set_input_status_str(initial_input_status)
-        self.set_gamma_table_str(initial_gamma_table)
-        self.set_gamma_value_str(initial_gamma_value)
+        self.set_gamma_table_status_str(initial_gamma_table)
+        self.set_gamma_value_status_str(initial_gamma_value)
         self.set_source_status_str(initial_source_status)
 
     def _start_one_shot_timer(
@@ -148,19 +148,19 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
             raise JvcProjectorError(f"Unknown input status string '{input_status}'")
         self.input_status_payload = self.input_status_query_meta.reverse_response_map[input_status]
 
-    def set_gamma_table_str(self, gamma_table: str) -> None:
+    def set_gamma_table_status_str(self, gamma_table: str) -> None:
         logger.debug(f"Setting projector emulator gamma table to '{gamma_table}'")
-        assert self.gamma_table_query_meta.reverse_response_map is not None
-        if not gamma_table in self.gamma_table_query_meta.reverse_response_map:
+        assert self.gamma_table_status_query_meta.reverse_response_map is not None
+        if not gamma_table in self.gamma_table_status_query_meta.reverse_response_map:
             raise JvcProjectorError(f"Unknown gamma table string '{gamma_table}'")
-        self.gamma_table_payload = self.gamma_table_query_meta.reverse_response_map[gamma_table]
+        self.gamma_table_status_payload = self.gamma_table_status_query_meta.reverse_response_map[gamma_table]
 
-    def set_gamma_value_str(self, gamma_value: str) -> None:
+    def set_gamma_value_status_str(self, gamma_value: str) -> None:
         logger.debug(f"Setting projector emulator gamma value to '{gamma_value}'")
-        assert self.gamma_value_query_meta.reverse_response_map is not None
-        if not gamma_value in self.gamma_value_query_meta.reverse_response_map:
+        assert self.gamma_value_status_query_meta.reverse_response_map is not None
+        if not gamma_value in self.gamma_value_status_query_meta.reverse_response_map:
             raise JvcProjectorError(f"Unknown gamma value string '{gamma_value}'")
-        self.gamma_value_payload = self.gamma_value_query_meta.reverse_response_map[gamma_value]
+        self.gamma_value_status_payload = self.gamma_value_status_query_meta.reverse_response_map[gamma_value]
 
     def set_source_status_str(self, source_status: str) -> None:
         logger.debug(f"Setting projector emulator source status to '{source_status}'")
@@ -255,6 +255,7 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
                         raise JvcProjectorError(f"Payload provided for response to basic command {command}: {response_payload.hex(' ')}")
             response = JvcResponse(command, basic_response_packet, advanced_response_packet)
 
+        logger.debug(f"{session}: Sending response: {response}")
         packets = [response.basic_response_packet]
         if not response.advanced_response_packet is None:
             packets.append(response.advanced_response_packet)
