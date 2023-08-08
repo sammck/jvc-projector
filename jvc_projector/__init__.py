@@ -28,4 +28,7 @@ from .protocol import (
     CommandMeta,
     JvcModel,
     models,
+    name_to_command_meta,
+    bytes_to_command_meta,
+    model_status_list_map,
   )

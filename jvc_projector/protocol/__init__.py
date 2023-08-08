@@ -41,5 +41,8 @@ from .handshake import (
 from .command_meta import (
     CommandMeta,
     JvcModel,
-    models
+    models,
+    name_to_command_meta,
+    bytes_to_command_meta,
+    model_status_list_map,
   )

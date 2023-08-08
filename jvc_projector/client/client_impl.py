@@ -17,14 +17,22 @@ from asyncio import Future
 from abc import ABC, abstractmethod
 
 from ..internal_types import *
-from ..exceptions import JvcProjectorError
+#from ..exceptions import JvcProjectorError
 from ..constants import DEFAULT_TIMEOUT, DEFAULT_PORT
 from ..pkg_logging import logger
-from ..protocol import Packet, PJ_OK, PJREQ, PJACK, PJNAK
+from ..protocol import (
+    Packet,
+    JvcModel,
+    JvcCommand,
+    JvcResponse,
+    CommandMeta,
+    models,
+    name_to_command_meta,
+    model_status_list_map,
+  )
 
 from .client_transport import JvcProjectorClientTransport
 from .tcp_client_transport import TcpJvcProjectorClientTransport
-from ..protocol import ( JvcCommand, JvcResponse, )
 
 class JvcProjectorClient:
     """JVC Projector TCP/IP client."""
@@ -32,9 +40,19 @@ class JvcProjectorClient:
     transport: JvcProjectorClientTransport
     final_status: Future[None]
 
-    def __init__(self, transport: JvcProjectorClientTransport):
+    model: Optional[JvcModel] = None
+
+    model_status_query_command_meta = name_to_command_meta("model_status.query")
+
+
+    def __init__(
+            self,
+            transport: JvcProjectorClientTransport,
+            model: Optional[JvcModel]=None
+          ):
         self.transport = transport
         self.final_status = Future()
+        self.model = model
 
     async def transact(
             self,
@@ -45,6 +63,11 @@ class JvcProjectorClient:
         basic_response_packet, advanced_response_packet = await self.transport.transact(command_packet)
         response = command.create_response_from_packets(
             basic_response_packet, advanced_response_packet)
+        if self.model is None and command.name == "model_status.query":
+            # if we don't know the projector model, and we just got a model_status.query response,
+            # then we can use the response to determine the model
+            _, default_model = model_status_list_map[response.payload]
+            self.model = default_model
         return response
 
     async def transact_by_name(
@@ -80,6 +103,7 @@ class JvcProjectorClient:
             password: Optional[str]=None,
             port: int=DEFAULT_PORT,
             timeout_secs: float=DEFAULT_TIMEOUT,
+            model: Optional[JvcModel]=None,
           ) -> Self:
         transport = await TcpJvcProjectorClientTransport.create(
                 host,
@@ -88,7 +112,7 @@ class JvcProjectorClient:
                 timeout_secs=timeout_secs
               )
         try:
-            self = cls(transport)
+            self = cls(transport, model=model)
         except BaseException as e:
             await transport.aclose()
             raise
@@ -105,6 +129,9 @@ class JvcProjectorClient:
 
     async def cmd_power_off(self) -> JvcResponse:
         return await self.transact_by_name("power.off")
+
+    async def cmd_model_status(self) -> JvcResponse:
+        return await self.transact_by_name("model_status.query")
 
     def __str__(self) -> str:
         return f"JvcProjectorClient(transport={self.transport})"

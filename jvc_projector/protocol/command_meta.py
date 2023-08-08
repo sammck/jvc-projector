@@ -139,7 +139,7 @@ gamma_value_status_map: Dict[bytes, str] = {
     b"\x31": "1.9",
     b"\x32": "2.0",
     b"\x33": "2.1",
-    b"\x34": "2.2",
+    b"\x34": "2.2",  # Default/normal
     b"\x35": "2.3",
     b"\x36": "2.4",
     b"\x37": "2.5",

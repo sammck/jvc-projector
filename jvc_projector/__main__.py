@@ -101,7 +101,9 @@ class CommandHandler:
         emulator = JvcProjectorEmulator(
             password=password,
             bind_addr=bind_addr,
-            port=port)
+            port=port,
+            model=self._model,
+          )
         def sigint_cleanup() -> None:
             emulator.close(CmdExitError(1, "Emulator terminated with SIGINT or SIGTERM"))
         loop = asyncio.get_running_loop()

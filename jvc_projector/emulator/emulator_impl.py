@@ -21,11 +21,12 @@ from ..protocol import (
     models,
     JvcCommand,
     JvcResponse,
+    bytes_to_command_meta,
+    name_to_command_meta,
+    CommandMeta,
   )
 from ..constants import DEFAULT_PORT
 from ..exceptions import JvcProjectorError
-
-from ..protocol.command_meta import bytes_to_command_meta
 
 from .session import JvcProjectorEmulatorSession
 
@@ -42,12 +43,29 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
     server_task: Optional[asyncio.Task[None]] = None
     final_result: asyncio.Future[None]
 
+    power_status_payload: bytes
+    input_status_payload: bytes
+    gamma_table_payload: bytes
+    gamma_value_payload: bytes
+    source_status_payload: bytes
+
+    power_status_query_meta = name_to_command_meta("power_status.query")
+    input_status_query_meta = name_to_command_meta("input_status.query")
+    gamma_table_query_meta = name_to_command_meta("gamma_table.query")
+    gamma_value_query_meta = name_to_command_meta("gamma_value.query")
+    source_status_query_meta = name_to_command_meta("source_status.query")
+
     def __init__(
             self,
             model: Optional[Union[JvcModel, str]] = None,
             password: Optional[str] = None,
             bind_addr: Optional[str] = None,
             port: int = DEFAULT_PORT,
+            initial_power_status: str = "Standby",
+            initial_input_status: str = "HDMI 1",
+            initial_gamma_table: str = "Normal",
+            initial_gamma_value: str = "2.2",
+            initial_source_status: str = "Signal OK",
           ):
         if model is None:
             model = 'DLA-NZ8'
@@ -62,6 +80,41 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         self.sessions = {}
         self.requests = asyncio.Queue()
         self.final_result = asyncio.Future()
+        self.set_power_status_str(initial_power_status)
+        self.set_input_status_str(initial_input_status)
+        self.set_gamma_table_str(initial_gamma_table)
+        self.set_gamma_value_str(initial_gamma_value)
+        self.set_source_status_str(initial_source_status)
+
+    def set_power_status_str(self, power_status: str) -> None:
+        assert self.power_status_query_meta.reverse_response_map is not None
+        if not power_status in self.power_status_query_meta.reverse_response_map:
+            raise JvcProjectorError(f"Unknown power status string '{power_status}'")
+        self.power_status_payload = self.power_status_query_meta.reverse_response_map[power_status]
+
+    def set_input_status_str(self, input_status: str) -> None:
+        assert self.input_status_query_meta.reverse_response_map is not None
+        if not input_status in self.input_status_query_meta.reverse_response_map:
+            raise JvcProjectorError(f"Unknown input status string '{input_status}'")
+        self.input_status_payload = self.input_status_query_meta.reverse_response_map[input_status]
+
+    def set_gamma_table_str(self, gamma_table: str) -> None:
+        assert self.gamma_table_query_meta.reverse_response_map is not None
+        if not gamma_table in self.gamma_table_query_meta.reverse_response_map:
+            raise JvcProjectorError(f"Unknown gamma table string '{gamma_table}'")
+        self.gamma_table_payload = self.gamma_table_query_meta.reverse_response_map[gamma_table]
+
+    def set_gamma_value_str(self, gamma_value: str) -> None:
+        assert self.gamma_value_query_meta.reverse_response_map is not None
+        if not gamma_value in self.gamma_value_query_meta.reverse_response_map:
+            raise JvcProjectorError(f"Unknown gamma value string '{gamma_value}'")
+        self.gamma_value_payload = self.gamma_value_query_meta.reverse_response_map[gamma_value]
+
+    def set_source_status_str(self, source_status: str) -> None:
+        assert self.source_status_query_meta.reverse_response_map is not None
+        if not source_status in self.source_status_query_meta.reverse_response_map:
+            raise JvcProjectorError(f"Unknown source status string '{source_status}'")
+        self.source_status_payload = self.source_status_query_meta.reverse_response_map[source_status]
 
     def alloc_session_id(self, session: JvcProjectorEmulatorSession) -> int:
         result = self.next_session_id
