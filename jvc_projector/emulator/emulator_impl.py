@@ -242,6 +242,9 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         if command.name == 'model_status.query':
             logger.debug(f"{session}: Responding to model_status.query with {self.model}")
             result = self.model.model_status_payload
+        if command.name == 'power_status.query':
+            logger.debug(f"{session}: Responding to power_status.query with {self.get_power_status_str()}")
+            result = self.power_status_payload
         elif command.name == 'power.on':
             result = await self._handle_power_on(session, command)
         elif command.name == 'power.off':
