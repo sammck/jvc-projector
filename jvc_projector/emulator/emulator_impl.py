@@ -12,6 +12,7 @@ Provides a simple emulation of a JVC projector on TCP/IP.
 from __future__ import annotations
 
 import asyncio
+import sddp_discovery_protocol as sddp
 
 from ..internal_types import *
 from ..pkg_logging import logger
@@ -61,6 +62,13 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
 
     warmup_timer: Optional[asyncio.Task[None]] = None
     cooldown_timer: Optional[asyncio.Task[None]] = None
+    sddp_server_task: Optional[asyncio.Task[None]] = None
+    with_sddp: bool
+    sddp_multicast_address: str
+    sddp_port: int
+    sddp_bind_addresses: Optional[List[str]]
+    sddp_headers: Dict[str, Union[str, int, float]]
+    sddp_include_loopback: bool
 
     def __init__(
             self,
@@ -75,6 +83,12 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
             initial_source_status: str = "Signal OK",
             warmup_time: float = EMULATOR_WARMUP_TIME,
             cooldown_time: Optional[float] = None,
+            with_sddp: bool = True,
+            sddp_multicast_address: str=sddp.SDDP_MULTICAST_ADDRESS,
+            sddp_port: int = sddp.SDDP_PORT,
+            sddp_bind_addresses: Optional[Iterable[str]]=['127.0.0.1'],
+            sddp_include_loopback: bool = True,
+            sddp_headers: Optional[Mapping[str, Union[str, int, float]]] = None,
           ):
         if model is None:
             model = 'DLA-NZ8'
@@ -91,11 +105,54 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         self.final_result = asyncio.Future()
         self.warmup_time = warmup_time
         self.cooldown_time = cooldown_time if cooldown_time is not None else warmup_time
+        self.with_sddp = with_sddp
+        self.sddp_multicast_address = sddp_multicast_address
+        self.with_sddp = with_sddp
+        self.sddp_port = sddp_port
+        self.sddp_bind_addresses = None if sddp_bind_addresses is None else list(sddp_bind_addresses)
+        self.sddp_include_loopback = sddp_include_loopback
+        sddp_model_name = self.model.sddp_name
+        self.sddp_headers = {
+            "Driver": f"projector_JVCKENWOOD_{sddp_model_name}.c4i",
+            "Host": "JVC_PROJECTOR-E0DADC152802",
+            "Manufacturer": "JVCKENWOOD",
+            "Model": sddp_model_name,
+            "Primary-Proxy": "projector",
+            "Proxies": "projector",
+            "Type": "JVCKENWOOD:Projector"
+        }
+        if self.port != DEFAULT_PORT:
+            # A nonstandard header is required to advertise nonstandard ports
+            self.sddp_headers["Port"] = self.port
+        if sddp_headers is not None:
+            self.sddp_headers.update(sddp_headers)
         self.set_power_status_str(initial_power_status)
         self.set_input_status_str(initial_input_status)
         self.set_gamma_table_status_str(initial_gamma_table)
         self.set_gamma_value_status_str(initial_gamma_value)
         self.set_source_status_str(initial_source_status)
+
+    async def _run_sddp_server(self) -> None:
+        try:
+            async with sddp.SddpServer(
+                    device_headers=self.sddp_headers,
+                    multicast_address=self.sddp_multicast_address,
+                    multicast_port=self.sddp_port,
+                    bind_addresses=self.sddp_bind_addresses,
+                    include_loopback=self.sddp_include_loopback,
+                  ) as server:
+                # This will wait forever unless another task stops the server
+                await server.wait_for_done()
+        except asyncio.CancelledError:
+            logger.debug("SDDP server cancelled")
+            raise
+        except BaseException as e:
+            logger.debug(f"SDDP server error: {e}")
+            self.set_final_result(e)
+            raise
+        else:
+            logger.debug(f"SDDP server stopped prematurely")
+            self.set_final_result(JvcProjectorError("SDDP server stopped prematurely"))
 
     def _start_one_shot_timer(
             self,
@@ -120,8 +177,10 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
             self.set_power_status_str("Standby")
 
     def get_power_status_str(self) -> str:
-        assert self.power_status_query_meta.response_map is not None
-        return self.power_status_query_meta.response_map[self.power_status_payload]
+        result = self.power_status_query_meta.response_map.response_payload_to_str(
+            self.power_status_payload)
+        assert result is not None
+        return result
 
     def set_power_status_str(self, power_status: str) -> None:
         logger.debug(f"Setting projector emulator power status to '{power_status}'")
@@ -131,10 +190,11 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         if self.cooldown_timer is not None:
             self.cooldown_timer.cancel()
             self.cooldown_timer = None
-        assert self.power_status_query_meta.reverse_response_map is not None
-        if not power_status in self.power_status_query_meta.reverse_response_map:
+        power_status_payload = self.power_status_query_meta.response_map.str_to_response_payload(
+            power_status)
+        if power_status_payload is None:
             raise JvcProjectorError(f"Unknown power status string '{power_status}'")
-        self.power_status_payload = self.power_status_query_meta.reverse_response_map[power_status]
+        self.power_status_payload = power_status_payload
         if not self.final_result.done():
             if power_status == "Warming":
                 self.warmup_timer = self._start_one_shot_timer(self.warmup_time, self._on_warmup_done)
@@ -143,31 +203,35 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
 
     def set_input_status_str(self, input_status: str) -> None:
         logger.debug(f"Setting projector emulator input status to '{input_status}'")
-        assert self.input_status_query_meta.reverse_response_map is not None
-        if not input_status in self.input_status_query_meta.reverse_response_map:
+        input_status_payload = self.input_status_query_meta.response_map.str_to_response_payload(
+            input_status)
+        if input_status_payload is None:
             raise JvcProjectorError(f"Unknown input status string '{input_status}'")
-        self.input_status_payload = self.input_status_query_meta.reverse_response_map[input_status]
+        self.input_status_payload = input_status_payload
 
     def set_gamma_table_status_str(self, gamma_table: str) -> None:
         logger.debug(f"Setting projector emulator gamma table to '{gamma_table}'")
-        assert self.gamma_table_status_query_meta.reverse_response_map is not None
-        if not gamma_table in self.gamma_table_status_query_meta.reverse_response_map:
+        gamma_table_status_payload = self.gamma_table_status_query_meta.response_map.str_to_response_payload(
+            gamma_table)
+        if gamma_table_status_payload is None:
             raise JvcProjectorError(f"Unknown gamma table string '{gamma_table}'")
-        self.gamma_table_status_payload = self.gamma_table_status_query_meta.reverse_response_map[gamma_table]
+        self.gamma_table_status_payload = gamma_table_status_payload
 
     def set_gamma_value_status_str(self, gamma_value: str) -> None:
         logger.debug(f"Setting projector emulator gamma value to '{gamma_value}'")
-        assert self.gamma_value_status_query_meta.reverse_response_map is not None
-        if not gamma_value in self.gamma_value_status_query_meta.reverse_response_map:
+        gamma_value_status_payload = self.gamma_value_status_query_meta.response_map.str_to_response_payload(
+            gamma_value)
+        if gamma_value_status_payload is None:
             raise JvcProjectorError(f"Unknown gamma value string '{gamma_value}'")
-        self.gamma_value_status_payload = self.gamma_value_status_query_meta.reverse_response_map[gamma_value]
+        self.gamma_value_status_payload = gamma_value_status_payload
 
     def set_source_status_str(self, source_status: str) -> None:
         logger.debug(f"Setting projector emulator source status to '{source_status}'")
-        assert self.source_status_query_meta.reverse_response_map is not None
-        if not source_status in self.source_status_query_meta.reverse_response_map:
+        source_status_payload = self.source_status_query_meta.response_map.str_to_response_payload(
+            source_status)
+        if source_status_payload is None:
             raise JvcProjectorError(f"Unknown source status string '{source_status}'")
-        self.source_status_payload = self.source_status_query_meta.reverse_response_map[source_status]
+        self.source_status_payload = source_status_payload
 
     def alloc_session_id(self, session: JvcProjectorEmulatorSession) -> int:
         result = self.next_session_id
@@ -255,14 +319,10 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
                 result = None
             else:
                 # for advanced commands, just return the lowest sorted response payload
-                rrm = command.reverse_response_map
-                if rrm is None:
-                    raise JvcProjectorError(f"No response map for advanced command {command}")
-
-                payloads = sorted(rrm.values())
-                if len(payloads) == 0:
-                    raise JvcProjectorError(f"Empty response map for advanced command {command}")
-
+                payload_set = command.response_map.valid_response_payloads()
+                if payload_set is None or len(payload_set) == 0:
+                    raise JvcProjectorError(f"No valid response payloads for advanced command {command}")
+                payloads = sorted(payload_set)
                 result = payloads[0]
         return result
 
@@ -296,9 +356,8 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
                 if not gen_response is None and not isinstance(gen_response, bool):
                     response_payload = b''
                     if isinstance(gen_response, str):
-                        opt_response_payload = (
-                                None if command.reverse_response_map is None else
-                                command.reverse_response_map.get(gen_response, None))
+                        opt_response_payload = command.response_map.str_to_response_payload(
+                            gen_response)
                         if opt_response_payload is None:
                             raise JvcProjectorError(f"Unknown advanced string response '{gen_response}' for command {command}")
                         response_payload = opt_response_payload
@@ -365,6 +424,8 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
                 port=self.port)
             logger.debug(f"Emulator: Listening on {self.bind_addr}:{self.port}")
             await self.server.start_serving()
+            if self.with_sddp:
+                self.sddp_server_task = asyncio.create_task(self._run_sddp_server())
             await self.finish_start()
         except BaseException as e:
             self.set_final_result(e)
@@ -392,11 +453,20 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
                         await self.server.wait_closed()
             finally:
                 self.server = None
-                if self.handler_task is not None:
+                if self.sddp_server_task is not None:
                     try:
-                        await self.handler_task
+                        self.sddp_server_task.cancel()
+                        try:
+                            await self.sddp_server_task
+                        except asyncio.CancelledError:
+                            pass
                     finally:
-                        self.handler_task = None
+                        self.sddp_server_task = None
+                        if self.handler_task is not None:
+                            try:
+                                await self.handler_task
+                            finally:
+                                self.handler_task = None
 
     async def close_and_wait(self, exc: Optional[BaseException]=None) -> None:
         self.close(exc)
@@ -410,6 +480,8 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
             else:
                 logger.debug(f"Emulator: Setting final exception: {exc}")
                 self.final_result.set_exception(exc)
+            if self.sddp_server_task is not None:
+                self.sddp_server_task.cancel()
             if self.warmup_timer is not None:
                 self.warmup_timer.cancel()
                 self.warmup_timer = None

@@ -76,7 +76,7 @@ class CommandHandler:
             "Primary-Proxy": "projector",
           }
 
-        async with SddpClient(bind_addresses=bind_addresses) as client:
+        async with SddpClient(bind_addresses=bind_addresses, include_loopback=True) as client:
             async with SddpSearchRequest(
                     client,
                     filter_headers=filter_headers,

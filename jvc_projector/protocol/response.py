@@ -8,7 +8,7 @@ from __future__ import annotations
 from ..internal_types import *
 from .packet import Packet, PacketType
 from ..exceptions import JvcProjectorError
-from .command_meta import CommandMeta
+from .command_meta import CommandMeta, ResponsePayloadMapper
 
 if TYPE_CHECKING:
     from .command import JvcCommand
@@ -73,15 +73,16 @@ class JvcResponse:
         return self.command.command_meta
 
     @property
-    def response_map(self) -> Optional[Dict[bytes, str]]:
+    def response_map(self) -> ResponsePayloadMapper:
         """Returns a map of response payload to response strings, if any"""
         return self.command_meta.response_map
 
     def response_str(self) -> Optional[str]:
         """Returns a string representation of the response, if any"""
-        result: Optional[str] = None
-        if not self.response_map is None:
-            result = self.response_map.get(self.payload, None)
+        try:
+            result = self.response_map.response_payload_to_str(self.payload)
+        except Exception:
+            result = None
 
         return result
 

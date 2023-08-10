@@ -13,6 +13,7 @@ from ..pkg_logging import logger
 from .command_meta import (
     JvcModel,
     CommandMeta,
+    ResponsePayloadMapper,
     bytes_to_command_meta,
     name_to_command_meta,
   )
@@ -136,16 +137,10 @@ class JvcCommand:
         return self.command_meta.response_payload_length
 
     @property
-    def response_map(self) -> Optional[Dict[bytes, str]]:
+    def response_map(self) -> ResponsePayloadMapper:
         """Map of response payloads to friendly response strings.
            None if not an advanced command."""
         return self.command_meta.response_map
-
-    @property
-    def reverse_response_map(self) -> Optional[Dict[str, bytes]]:
-        """Map from a friendly response name to a response payload, if known.
-           None if not an advanced command."""
-        return self.command_meta.reverse_response_map
 
     @classmethod
     def create_from_command_packet(

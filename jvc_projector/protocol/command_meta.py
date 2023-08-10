@@ -20,6 +20,7 @@ There is no protocol implementation here; only metadata about the protocol.
 from __future__ import annotations
 
 import re
+from abc import ABC, abstractmethod
 
 from ..pkg_logging import logger
 from ..internal_types import *
@@ -101,17 +102,256 @@ for _model_names in _known_models:
 CommandCode = bytes
 """A command code. Always a 2-byte byte string."""
 
-power_status_map: Dict[bytes, str] = {
+class ResponsePayloadMapper(ABC):
+    """An abstract class that maps response payloads to a string representation.
+
+       This class is used to map response payloads to a string representation.
+       It is used for commands that return a fixed set of response payloads,
+       such as power_status.query, which returns a fixed set of 1-byte payloads
+       that correspond to the power state of the projector.
+
+       It can also be used for commands that return a variable set of response
+       queries that can be mapped to a string representation, such as
+       firmware_version_status.query, which returns a 6-byte encoded
+       representation of the firmware version.
+
+       Also provides a reverse mapping from string representations to response
+       payloads.
+    """
+    def __init__(self):
+        pass
+
+    @abstractmethod
+    def valid_response_payloads(self) -> Optional[Set[bytes]]:
+        """Returns the set of valid response payloads, or None if there
+           is not a fixed set of valid payloads."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def is_valid_response_payload(self, payload: bytes) -> bool:
+        """Returns True if the given payload is a valid response payload."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def response_payload_to_str(self, payload: bytes) -> Optional[str]:
+        """Maps a response payload to a string representation.
+
+           This method takes a response payload and returns the string
+           representation of that payload, or None if the payload is not
+           mappable.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def valid_strs(self) -> Optional[Set[str]]:
+        """Returns the set of valid response payload strings, or None if there
+           is not a fixed set of valid payloads."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def is_valid_str(self, value: str) -> bool:
+        """Returns True if the given string is a valid string representation of a
+           response payload.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def str_to_response_payload(self, value: str) -> Optional[bytes]:
+        """Maps a string representation to a response payload.
+
+           This method takes a string representation of a response payload and
+           returns the payload, or None if the string is not mappable.
+        """
+        raise NotImplementedError()
+
+class FixedResponsePayloadMapper(ResponsePayloadMapper):
+    """A ResponsePayloadMapper that maps response payloads to a fixed set of
+       strings.
+    """
+    payload_to_str_map: Dict[bytes, str]
+    """A mapping from response payloads to string representations."""
+
+    _valid_payloads: Set[bytes]
+    """A set of valid response payloads."""
+
+    str_to_payload_map: Dict[str, bytes]
+    """A mapping from string representations to response payloads."""
+
+    _valid_strs: Set[str]
+    """A set of valid string representations."""
+
+    def __init__(
+            self,
+            payload_to_str_map: Mapping[bytes, str]
+          ):
+        """Creates a new FixedResponsePayloadMapper.
+
+           Args:
+             payload_to_str_map: A mapping from response payloads to string
+               representations.
+        """
+        super().__init__()
+        self.payload_to_str_map = dict(payload_to_str_map)
+        self._valid_payloads = set(payload_to_str_map.keys())
+        self.str_to_payload_map = {}
+        for payload, str in payload_to_str_map.items():
+            if str in self.str_to_payload_map:
+                raise ValueError(f"Duplicate string representation in payload map: '{str}'")
+            self.str_to_payload_map[str] = payload
+        self._valid_strs = set(payload_to_str_map.values())
+
+    def valid_response_payloads(self) -> Optional[Set[bytes]]:
+        return self._valid_payloads
+
+    def is_valid_response_payload(self, payload: bytes) -> bool:
+        return payload in self._valid_payloads
+
+    def response_payload_to_str(self, payload: bytes) -> Optional[str]:
+        return self.payload_to_str_map.get(payload, None)
+
+    def valid_strs(self) -> Optional[Set[str]]:
+        return self._valid_strs
+
+    def is_valid_str(self, value: str) -> bool:
+        return value in self._valid_strs
+
+    def str_to_response_payload(self, value: str) -> Optional[bytes]:
+        return self.str_to_payload_map.get(value, None)
+
+class DefaultResponsePayloadMapper(ResponsePayloadMapper):
+    """A ResponsePayloadMapper that accepts any payload of correct size.
+    """
+    payload_size: Optional[int]
+    _valid_payloads: Optional[Set[bytes]]
+    _valid_strs: Optional[Set[str]]
+
+    def __init__(self, payload_size: Optional[int] = None):
+        super().__init__()
+        self.payload_size = payload_size
+        self._valid_payloads = set([b'']) if payload_size == 0 else None
+        self._valid_strs = set(['']) if payload_size == 0 else None
+
+    def valid_response_payloads(self) -> Optional[Set[bytes]]:
+        return self._valid_payloads
+
+    def is_valid_response_payload(self, payload: bytes) -> bool:
+        if self.payload_size is not None and len(payload) != self.payload_size:
+            return False
+        return True
+
+    def response_payload_to_str(self, payload: bytes) -> Optional[str]:
+        return None
+
+    def valid_strs(self) -> Optional[Set[str]]:
+        return self._valid_strs
+
+    def is_valid_str(self, value: str) -> bool:
+        if self.payload_size is None or self.payload_size != 0 or len(value) != 0:
+            return False
+        return True
+
+    def str_to_response_payload(self, value: str) -> Optional[bytes]:
+        if self.payload_size is None or self.payload_size != 0 or len(value) != 0:
+            return None
+        return b''
+
+empty_status_map = FixedResponsePayloadMapper({})
+"""A ResponsePayloadMapper that is used for basic commands that have no response payload."""
+
+class FirmwareResponsePayloadMapper(ResponsePayloadMapper):
+    """A ResponsePayloadMapper that maps firmware_version_status.query
+       response payloads to friendly strings.
+    """
+    def valid_response_payloads(self) -> Optional[Set[bytes]]:
+        return None
+
+    def is_valid_response_payload(self, payload: bytes) -> bool:
+        try:
+            _ = self._payload_to_firmware_version(payload)
+        except Exception:
+            return False
+        return True
+
+    def response_payload_to_str(self, payload: bytes) -> Optional[str]:
+        try:
+            return self._payload_to_firmware_version(payload)
+        except Exception:
+            return None
+
+    def valid_strs(self) -> Optional[Set[str]]:
+        return None
+
+    _firmware_payload_re = re.compile(r"^(\d{2})-(\d{3})$")
+    def _payload_to_firmware_version(self, payload: bytes) -> str:
+        """Converts a firmware version payload to a string."""
+        try:
+            if len(payload) != 6:
+                raise JvcProjectorError(f"Invalid firmware version payload length: {payload.hex(' ')}")
+            payload_str = payload.decode("utf-8")
+            if '-' in payload_str:
+                # Documented projector version format is "MM-mmm"
+                match = self._firmware_payload_re.match(payload_str)
+                if match is None:
+                    raise JvcProjectorError(f"Invalid firmware version payload: {payload.hex(' ')}")
+                major = int(match.group(1))
+                minor = int(match.group(2))
+            else:
+                # Some projectors (NZ8...) return a version string without the dash
+                # and with trailing blanks. We'll try to handle that here. The assumption
+                # is that the major version is always 2 digits and the minor version is
+                # the remainder before the first blank.
+                payload_str = payload_str.rstrip()
+                if not '.' in payload_str:
+                    if len(payload_str) <= 2:
+                        major = int(payload_str)
+                        minor = 0
+                    else:
+                        major = int(payload_str[:2])
+                        minor = int(payload_str[2:])
+            return f"{major}.{minor:03d}"
+        except Exception as e:
+            logger.debug(f"Error converting firmware version payload {payload.hex(' ')} to string: {e}")
+            raise
+    def _firmware_version_to_payload(self, version: str) -> bytes:
+        """Converts a firmware version string to a payload."""
+        try:
+            parts = version.split(".", 1)
+            major, minor = (int(parts[0]), int(parts[1])) if len(parts) == 2 else (int(parts[0]), 0)
+            if major < 0 or major > 99 or minor < 0 or minor > 999:
+                raise JvcProjectorError(f"Invalid firmware version: {version}")
+            return f"{major:02d}-{minor:03d}".encode("utf-8")
+        except Exception as e:
+            logger.debug(f"Error converting firmware version string '{version}' to payload: {e}")
+            raise
+
+    def is_valid_str(self, value: str) -> bool:
+        try:
+            _ = self._firmware_version_to_payload(value)
+        except Exception:
+            return False
+        return True
+
+    def str_to_response_payload(self, value: str) -> Optional[bytes]:
+        try:
+            return self._firmware_version_to_payload(value)
+        except Exception:
+            return None
+
+firmware_version_status_map = FirmwareResponsePayloadMapper()
+
+_power_status_map: Dict[bytes, str] = {
     b"\x30": "Standby",
     b"\x31": "On",
     b"\x32": "Cooling",
     b"\x33": "Warming",   # Not documented; determined empirically
     b"\x34": "Emergency",
   }
+
+power_status_map = FixedResponsePayloadMapper(_power_status_map)
 """Response payloads for power_status.query command, and the projector power
    states they correspond to."""
 
-input_status_map: Dict[bytes, str] = {
+_input_status_map: Dict[bytes, str] = {
     b"\x30": "S-Video",
     b"\x31": "Video",
     b"\x32": "Component",
@@ -119,10 +359,11 @@ input_status_map: Dict[bytes, str] = {
     b"\x36": "HDMI 1",
     b"\x37": "HDMI 2",
   }
+input_status_map = FixedResponsePayloadMapper(_input_status_map)
 """Response payloads for input_status.query command, and the projector input
    states they correspond to."""
 
-gamma_table_status_map: Dict[bytes, str] = {
+_gamma_table_status_map: Dict[bytes, str] = {
     b"\x30": "Normal",
     b"\x31": "A",
     b"\x32": "B",
@@ -131,10 +372,11 @@ gamma_table_status_map: Dict[bytes, str] = {
     b"\x35": "Custom 2",
     b"\x36": "Custom 3",
   }
+gamma_table_status_map = FixedResponsePayloadMapper(_gamma_table_status_map)
 """Response payloads for gamma_table_status.query command, and the projector gamma
    table states they correspond to."""
 
-gamma_value_status_map: Dict[bytes, str] = {
+_gamma_value_status_map: Dict[bytes, str] = {
     b"\x30": "1.8",
     b"\x31": "1.9",
     b"\x32": "2.0",
@@ -145,14 +387,16 @@ gamma_value_status_map: Dict[bytes, str] = {
     b"\x37": "2.5",
     b"\x38": "2.6",
   }
+gamma_value_status_map = FixedResponsePayloadMapper(_gamma_value_status_map)
 """Response payloads for gamma_value_status.query command, and the projector gamma
    value states they correspond to."""
 
-source_status_map: Dict[bytes, str] = {
+_source_status_map: Dict[bytes, str] = {
     b"\x00": "JVC Logo",
     b"\x30": "No Signal",
     b"\x31": "Signal OK",
   }
+source_status_map = FixedResponsePayloadMapper(_source_status_map)
 """Response payloads for source_status.query command, and the projector source
    states they correspond to."""
 
@@ -213,19 +457,21 @@ def _fix_model_status_list_map() -> None:
 
 _fix_model_status_list_map()
 
-model_status_map: Dict[bytes, str] = {}
-"""Response payloads for model_status.query command, and the comma-delimited
-   SDDP projector model names they correspond to. Only the SDDP name for each
-   associated model is included. The first model name in each list is the
-   SDDP model name for the default model for that payload.
-   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '."""
+_model_status_map: Dict[bytes, str] = {}
 for _payload, _models_and_default in model_status_list_map.items():
     _models, _default_model = _models_and_default
     _model_name_list: List[str] = [ _default_model.sddp_name ]
     for _model_name in sorted([_model.sddp_name for _model in _models]):
         if _model_name != _default_model.sddp_name:
             _model_name_list.append(_model_name)
-    model_status_map[_payload] = ','.join(_model_name_list)
+    _model_status_map[_payload] = ','.join(_model_name_list)
+
+model_status_map = FixedResponsePayloadMapper(_model_status_map)
+"""Response payloads for model_status.query command, and the comma-delimited
+   SDDP projector model names they correspond to. Only the SDDP name for each
+   associated model is included. The first model name in each list is the
+   SDDP model name for the default model for that payload.
+   The model codes are 14 bytes long; the first 10 bytes are always b'ILAFPJ -- '."""
 
 class CommandGroupMeta:
     """Metadata for a group of commands with a common command prefix as described in the documentation"""
@@ -346,13 +592,9 @@ class CommandMeta:
     description: Optional[str]
     """A description of the command, if known."""
 
-    response_map: Optional[Dict[bytes, str]]
-    """For advanced commands, a map from a response payload value to a friendly
-       response name, if known."""
-
-    reverse_response_map: Optional[Dict[str, bytes]]
-    """For advanced commands, a map from a friendly
-       response name to a response payload, if known."""
+    _response_map: Optional[ResponsePayloadMapper]
+    """A mapper between response payload values and friendly
+       strings."""
 
     models_str: Optional[str]
     """For commands that apply to a specific set of models, a slash-delimited list
@@ -374,19 +616,23 @@ class CommandMeta:
             name: str,
             command_additional_prefix: bytes,
             description: Optional[str]=None,
-            response_map: Optional[Dict[bytes, str]]=None,
+            response_map: Optional[ResponsePayloadMapper]=None,
             models_str: Optional[str]=None,
           ):
         self.name = name
         self.command_additional_prefix = command_additional_prefix
         self.description = description
-        self.response_map = response_map
-        if response_map is None:
-            self.reverse_response_map = None
-        else:
-            self.reverse_response_map = dict((v, k) for k, v in response_map.items())
+        self._response_map = response_map
         # models_str will be updated to the command group's models_str if not set
         self.models_str = models_str
+
+    @property
+    def response_map(self) -> ResponsePayloadMapper:
+        """A mapper between response payload values and friendly
+           strings."""
+        if self._response_map is None:
+            self._response_map = DefaultResponsePayloadMapper(self.response_payload_length)
+        return self._response_map
 
     @property
     def command_group(self) -> CommandGroupMeta:
@@ -478,7 +724,13 @@ _C = CommandMeta
 # The following is an exhaustive list of all known commands and their metadata, as described in the JVC documentation.
 _group_metas: List[CommandGroupMeta] = [
     _G("power", b'\x50\x57', commands=[
+        # NOTE: Some or all projectors will fail to send a response to the power.on command
+        # if the projector is not in Standby or On state (e.g., if it is Warming or Cooling).
+        # Cannot be used to cancel Cooling.
         _C("on", b'\x31', "Power - On"),
+        # NOTE: Some or all projectors will fail to send a response to the power.off command
+        # if the projector is not in On state (e.g., if it is Standby, Warming or Cooling).
+        # Cannot be used to cancel Warming.
         _C("off", b'\x30', "Power - Off"),
       ]),
     _G("set_input", b'\x49\x50', commands=[
@@ -1031,11 +1283,13 @@ _group_metas: List[CommandGroupMeta] = [
             response_payload_length=1,
         ),
       _G("gamma_table_status", b'\x47\x54', [
+              # NOTE: No response on NZ8
               _C("query", b'', "Query current gamma table selection", response_map=gamma_table_status_map),
             ],
             response_payload_length=1,
         ),
       _G("gamma_value_status", b'\x47\x50', [
+              # Note: No response on NZ8
               _C("query", b'', "Query current gamma value", response_map=gamma_value_status_map),
             ],
             response_payload_length=1,
@@ -1050,6 +1304,14 @@ _group_metas: List[CommandGroupMeta] = [
             ],
             response_payload_length=14,
         ),
+
+      # NOTE: The following commands are gleaned from newer documentation
+      _G("firmware_version_status", b'\x49\x46', [
+              _C("query", b'\x53\x56', "Query firmware version", response_map=firmware_version_status_map),
+            ],
+            response_payload_length=6,
+        ),
+
   ]
 
 
