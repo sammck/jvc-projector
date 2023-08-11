@@ -102,7 +102,7 @@ class JvcProjectorEmulator(AsyncContextManager['JvcProjectorEmulator']):
         self.port = port
         self.sessions = {}
         self.requests = asyncio.Queue()
-        self.final_result = asyncio.Future()
+        self.final_result = asyncio.get_event_loop().create_future()
         self.warmup_time = warmup_time
         self.cooldown_time = cooldown_time if cooldown_time is not None else warmup_time
         self.with_sddp = with_sddp

@@ -23,10 +23,104 @@ from abc import ABC, abstractmethod
 from ..internal_types import *
 from ..pkg_logging import logger
 from ..protocol import Packet
+from .multi_response_packets import MultiResponsePackets
 
+from .client_transport_transaction import JvcProjectorClientTransportTransaction
+
+ResponsePackets = Tuple[Packet, Optional[Packet]]
+"""A tuple of (basic_response: Packet, advanced_response: Optional[Packet]). If the response
+   is to a basic command, advanced_response will be None."""
 
 class JvcProjectorClientTransport(ABC):
+    """Abstract base class for JVC Projector client transports."""
+
+    def __init__(self) -> None:
+        self._transaction_lock = asyncio.Lock()
+
     @abstractmethod
+    async def begin_transaction(self) -> None:
+        """Acquires the transaction lock.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    async def end_transaction(self) -> None:
+        """Releases the transaction lock.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError()
+
+    def transaction(self) -> JvcProjectorClientTransportTransaction:
+        """Returns an async context manager that while entered will
+           hold the transaction lock for this transport and provide
+           a safe transact() method.
+
+        Note that some transports (e.g., HTTP) may forcibly release
+        the transaction lock if no commands are sent for a period of time.
+        The caller should minimize the amount of time spent in the
+        transaction context.
+
+        Example:
+
+           async with transport.transaction() as transaction:
+               response1 = await transaction.transact(command_packet1)
+               response2 = await transaction.transact(command_packet2)
+        """
+        return JvcProjectorClientTransportTransaction(self)
+
+    @abstractmethod
+    async def transact_no_lock(
+            self,
+            command_packet: Packet,
+          ) -> ResponsePackets:
+        """Sends a command packet and reads the response packet(s).
+
+        The first response packet is the basic response. The second response
+        packet is the advanced response, if any.
+
+        The caller must be holding the transaction lock. Ordinary users
+        should use the transaction() context manager or call transact()
+        instead.
+
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError()
+
+    async def multi_transact_no_lock(
+            self,
+            command_packets: Iterable[Packet],
+          ) -> MultiResponsePackets:
+        """Sends multiple command packets and reads all response packet(s),
+           encapsulating them in MultiResponsePackets.
+
+        Does not raise an exception if some commands fail. Instead, the
+        exception is stored in the MultiResponsePackets object. The caller
+        should call wait() on the MultiResponsePackets object to rethrow
+        the exception if desired. Any commands that succeeded before the
+        failure will have their responses available in the responses list.
+
+        The caller must be holding the transaction lock. Ordinary users
+        should use the transaction() context manager or call multi_transact()
+        instead.
+
+        The default implementation simply calls transact_no_lock() for each
+        command packet in turn. Subclasses may override this method to
+        provide a more efficient implementation.
+        """
+        multi_response = MultiResponsePackets()
+        try:
+            for command_packet in command_packets:
+                response = await self.transact_no_lock(command_packet)
+                multi_response.add_response(response)
+            multi_response.set_final_result(None)
+        except BaseException as exc:
+            logger.debug("multi_transact: failed: %s", exc)
+            multi_response.set_final_result(exc)
+        return multi_response
+
     async def transact(
             self,
             command_packet: Packet,
@@ -36,9 +130,28 @@ class JvcProjectorClientTransport(ABC):
         The first response packet is the basic response. The second response
         packet is the advanced response, if any.
 
-        Must be implemented by subclasses.
+        A transaction lock is held during the transaction to ensure that only one transaction
+        is in progress at a time.
         """
-        raise NotImplementedError()
+        async with self.transaction() as transaction:
+            return await transaction.transact(command_packet)
+
+    async def multi_transact(
+            self,
+            command_packets: Iterable[Packet],
+          ) -> MultiResponsePackets:
+        """Sends multiple command packets and reads all response packet(s),
+           encapsulating them in MultiResponsePackets.
+
+        Does not raise an exception if some commands fail. Instead, the
+        exception is stored in the MultiResponsePackets object. The caller
+        should call wait() on the MultiResponsePackets object to rethrow
+        the exception if desired. Any commands that succeeded before the
+        failure will have their responses available in the responses list.
+        """
+        async with self.transaction() as transaction:
+            return await transaction.multi_transact(command_packets)
+
 
     @abstractmethod
     async def shutdown(self, exc: Optional[BaseException] = None) -> None:
@@ -67,7 +180,7 @@ class JvcProjectorClientTransport(ABC):
         """
         raise NotImplementedError()
 
-    # @abstractmethod
+    # @overridable
     async def aclose(self, exc: Optional[BaseException] = None) -> None:
         """Closes the transport and waits for complete shutdown/cleanup.
         Not safe to call from a callback.

@@ -56,7 +56,7 @@ class JvcProjectorClient:
             stable_power_timeout: float=STABLE_POWER_TIMEOUT,
           ):
         self.transport = transport
-        self.final_status = Future()
+        self.final_status = asyncio.get_event_loop().create_future()
         self.model = model
         self.stable_power_timeout = stable_power_timeout
 

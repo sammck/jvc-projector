@@ -22,7 +22,10 @@ from ..constants import DEFAULT_TIMEOUT, DEFAULT_PORT
 from ..pkg_logging import logger
 from ..protocol import Packet, PJ_OK, PJREQ, PJACK, PJNAK
 
-from .client_transport import JvcProjectorClientTransport
+from .client_transport import (
+    JvcProjectorClientTransport,
+    ResponsePackets
+  )
 
 class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     """JVC Projector TCP/IP client transport."""
@@ -37,7 +40,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     reader_closed: bool = False
     writer_closed: bool = False
 
-    transaction_lock: asyncio.Lock
+    _transaction_lock: asyncio.Lock
     """A mutex to ensure that only one transaction is in progress at a time;
     this allows multiple callers to use the same transport without worrying
     about mixing up response packets."""
@@ -54,8 +57,20 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
         self.port = port
         self.password = password
         self.timeout_secs = timeout_secs
-        self.final_status = asyncio.Future()
-        self.transaction_lock = asyncio.Lock()
+        self.final_status = asyncio.get_event_loop().create_future()
+        self._transaction_lock = asyncio.Lock()
+
+    # @abstractmethod
+    async def begin_transaction(self) -> None:
+        """Acquires the transaction lock.
+        """
+        await self._transaction_lock.acquire()
+
+    # @abstractmethod
+    async def end_transaction(self) -> None:
+        """Releases the transaction lock.
+        """
+        self._transaction_lock.release()
 
     async def _read_response_packet(self) -> Packet:
         """Reads a single response packet from the projector, with timeout (nonlocking).
@@ -97,7 +112,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
         async with self.transaction_lock:
             return await self._read_response_packet()
 
-    async def _read_response_packets(self, command_code: bytes, is_advanced: bool=False) -> Tuple[Packet, Optional[Packet]]:
+    async def _read_response_packets(self, command_code: bytes, is_advanced: bool=False) -> ResponsePackets:
         """Reads a basic response packet and an optional advanced response packet (nonlocking).
 
         On error, the transport will be shut down, and no further interaction is possible.
@@ -195,46 +210,26 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
         async with self.transaction_lock:
             await self._send_packet(packet)
 
-    async def _transact(
+    # @abstractmethod
+    async def transact_no_lock(
             self,
             command_packet: Packet,
-          ) -> Tuple[Packet, Optional[Packet]]:
-        """Sends a command packet and reads the response packet(s), with timeout (nonlocking).
+          ) -> ResponsePackets:
+        """Sends a command packet and reads the response packet(s).
 
-        The first response packet is the basic response. The second response packet
-        is the advanced response, if the command packet is an advanced command, or
-        None otherwise (if the command packet is an advanced command, the projector
-        will send a basic response packet followed by an advanced response packet).
+        The first response packet is the basic response. The second response
+        packet is the advanced response, if any.
 
-        Basic validation is performed on the response packets (e.g., that the
-        magic number is correct, that the response command code matches the command code).
-
-        On error, the transport will be shut down, and no further interaction is possible.
+        The caller must be holding the transaction lock. Ordinary users
+        should use the transaction() context manager or call transact()
+        instead.
         """
         await self._send_packet(command_packet)
         basic_response_packet, advanced_response_packet = await self._read_response_packets(
             command_packet.command_code, command_packet.is_advanced_command)
         return (basic_response_packet, advanced_response_packet)
 
-    async def transact(
-            self,
-            command_packet: Packet,
-          ) -> Tuple[Packet, Optional[Packet]]:
-        """Sends a command packet and reads the response packet(s), with timeout.
-
-        The first response packet is the basic response. The second response packet
-        is the advanced response, if the command packet is an advanced command, or
-        None otherwise (if the command packet is an advanced command, the projector
-        will send a basic response packet followed by an advanced response packet).
-
-        Basic validation is performed on the response packets (e.g., that the
-        magic number is correct, that the response command code matches the command code).
-
-        On error, the transport will be shut down, and no further interaction is possible.
-        """
-        async with self.transaction_lock:
-            return await self._transact(command_packet)
-
+    # @abstractmethod
     async def shutdown(self, exc: Optional[BaseException] = None) -> None:
         """Shuts the transport down. Does not wait for the transport to finish
            closing. Safe to call from a callback or with transaction lock.
@@ -267,7 +262,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
             except Exception as e:
                 logger.debug("Exception while closing writer", exc_info=True)
 
-
+    # @abstractmethod
     async def wait(self) -> None:
         """Waits for complete shutdown/cleanup. Does not initiate shutdown.
         Not safe to call from a callback.
@@ -286,13 +281,16 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
                 await self.shutdown()
         await self.final_status
 
+    # @override
     async def __aenter__(self) -> TcpJvcProjectorClientTransport:
         """Enters a context that will close the transport on exit."""
         return self
 
     async def connect(self) -> None:
+        """Connect to the projector and authenticate/handshake, with timeout.
+        """
         try:
-            async with self.transaction_lock:
+            async with self._transaction_lock:
                 try:
                     assert self.reader is None and self.writer is None
                     logger.debug(f"Connecting to projector at {self.host}:{self.port}")
