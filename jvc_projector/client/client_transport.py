@@ -34,9 +34,6 @@ ResponsePackets = Tuple[Packet, Optional[Packet]]
 class JvcProjectorClientTransport(ABC):
     """Abstract base class for JVC Projector client transports."""
 
-    def __init__(self) -> None:
-        self._transaction_lock = asyncio.Lock()
-
     @abstractmethod
     async def begin_transaction(self) -> None:
         """Acquires the transaction lock.

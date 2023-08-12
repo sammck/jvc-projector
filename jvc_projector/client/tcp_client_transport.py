@@ -27,6 +27,8 @@ from .client_transport import (
     ResponsePackets
   )
 
+from .resolve_host import resolve_projector_tcp_host
+
 class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     """JVC Projector TCP/IP client transport."""
 
@@ -53,6 +55,9 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
             port: int=DEFAULT_PORT,
             timeout_secs: float = DEFAULT_TIMEOUT
           ) -> None:
+        """Initializes the transport.
+        """
+        super().__init__()
         self.host = host
         self.port = port
         self.password = password
@@ -109,7 +114,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         On error, the transport will be shut down, and no further interaction is possible.
         """
-        async with self.transaction_lock:
+        async with self._transaction_lock:
             return await self._read_response_packet()
 
     async def _read_response_packets(self, command_code: bytes, is_advanced: bool=False) -> ResponsePackets:
@@ -140,7 +145,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         On error, the transport will be shut down, and no further interaction is possible.
         """
-        async with self.transaction_lock:
+        async with self._transaction_lock:
             return await self._read_response_packets(command_code, is_advanced=is_advanced)
 
     async def _read_exactly(self, length: int) -> bytes:
@@ -169,7 +174,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         On error, the transport will be shut down, and no further interaction is possible.
         """
-        async with self.transaction_lock:
+        async with self._transaction_lock:
             return await self._read_exactly(length)
 
     async def _write_exactly(self, data: bytes | bytearray | memoryview) -> None:
@@ -192,7 +197,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         On error, the transport will be shut down, and no further interaction is possible.
         """
-        async with self.transaction_lock:
+        async with self._transaction_lock:
             await self._write_exactly(data)
 
     async def _send_packet(self, packet: Packet) -> None:
@@ -207,7 +212,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         On error, the transport will be shut down, and no further interaction is possible.
         """
-        async with self.transaction_lock:
+        async with self._transaction_lock:
             await self._send_packet(packet)
 
     # @abstractmethod
@@ -329,12 +334,43 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     @classmethod
     async def create(
             cls,
-            host: str,
+            host: Optional[str]=None,
             password: Optional[str]=None,
-            port: int=DEFAULT_PORT,
+            port: Optional[int]=None,
             timeout_secs: float=DEFAULT_TIMEOUT
           ) -> Self:
-        transport = cls(host, password=password, port=port, timeout_secs=timeout_secs)
+        """Creates and connects a transport to
+           a JVC Projector that is reachable over TCP/IP.
+
+              Args:
+                host: The hostname or IPV4 address of the projector.
+                      may optionally be prefixed with "tcp://".
+                      May be suffixed with ":<port>" to specify a
+                      non-default port, which will override the port argument.
+                      May be "sddp://" or "sddp://<host>" to use
+                      SSDP to discover the projector.
+                      If None, the host will be taken from the
+                        JVC_PROJECTOR_HOST environment variable.
+                password:
+                      The projector password. If None, the password
+                      will be taken from the JVC_PROJECTOR_PASSWORD
+                      environment variable. If an empty string or the
+                      environment variable is not found, no password
+                      will be used.
+                port: The default TCP/IP port number to use. If None, the port
+                      will be taken from the JVC_PROJECTOR_PORT. If that
+                      environment variable is not found, the default JVC
+                      projector port (20554) will be used.
+                timeout_secs: The default timeout for operations on the
+                        transport. If not provided, DEFAULT_TIMEOUT (2 seconds)
+                        is used.
+        """
+        final_host, final_port, sddp_info = await resolve_projector_tcp_host(
+            host,
+            port
+          )
+
+        transport = cls(final_host, password=password, port=final_port, timeout_secs=timeout_secs)
         await transport.connect()
         # on error, the transport will be shut down, and no further interaction is possible
         return transport

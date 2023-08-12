@@ -24,6 +24,8 @@ from jvc_projector import (
     JvcResponse,
     JvcModel,
     models,
+    jvc_projector_connect,
+    JvcProjectorClientConfig,
   )
 
 from sddp_discovery_protocol import (
@@ -125,17 +127,16 @@ class CommandHandler:
         #                     help='''The projector host address. Default: use env var JVC_PROJECTOR_HOST.''')
         # parser_exec.add_argument('exec_command', nargs=argparse.REMAINDER,
         #                     help='''One or more named commands to execute; e.g., "power.on".''')
-        port = self._args.port
-        password = self._args.password
-        host = self._args.host
-        if host is None or host == "":
-            host = os.environ.get("JVC_PROJECTOR_HOST", None)
-        if host is None or host == "":
-            raise CmdExitError(1, "No JVC projector host specified")
+        config = JvcProjectorClientConfig(
+            default_host=self._args.host,
+            password=self._args.password,
+            default_port=self._args.port,
+          )
+
         cmd_names = self._args.exec_command
         if len(cmd_names) == 0:
             raise CmdExitError(1, "No projector commands specified")
-        async with await JvcProjectorClient.create(host, port=port, password=password) as client:
+        async with await jvc_projector_connect(config=config) as client:
             responses: List[JvcResponse] = []
             for cmd_name in cmd_names:
                 if cmd_name == "on":

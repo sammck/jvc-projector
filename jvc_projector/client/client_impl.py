@@ -30,6 +30,7 @@ from ..protocol import (
     name_to_command_meta,
     model_status_list_map,
   )
+from .client_config import JvcProjectorClientConfig
 
 from .client_transport import JvcProjectorClientTransport
 from .tcp_client_transport import TcpJvcProjectorClientTransport
@@ -43,6 +44,7 @@ class JvcProjectorClient:
     transport: JvcProjectorClientTransport
     final_status: Future[None]
 
+    config: JvcProjectorClientConfig
     model: Optional[JvcModel] = None
     stable_power_timeout: float
 
@@ -53,12 +55,19 @@ class JvcProjectorClient:
             self,
             transport: JvcProjectorClientTransport,
             model: Optional[JvcModel]=None,
-            stable_power_timeout: float=STABLE_POWER_TIMEOUT,
+            stable_power_timeout_secs: float=STABLE_POWER_TIMEOUT,
+            config: Optional[JvcProjectorClientConfig]=None,
           ):
+        """Initialize a JVC Projector TCP/IP client."""
+        self.config = JvcProjectorClientConfig(
+            model=model,
+            stable_power_timeout_secs=stable_power_timeout_secs,
+            base_config=config,
+        )
         self.transport = transport
+        self.model = self.config.model
+        self.stable_power_timeout = self.config.stable_power_timeout_secs
         self.final_status = asyncio.get_event_loop().create_future()
-        self.model = model
-        self.stable_power_timeout = stable_power_timeout
 
     async def transact(
             self,
@@ -101,28 +110,6 @@ class JvcProjectorClient:
           ) -> None:
         logger.debug(f"{self}: Exiting async context manager, exc={exc_val}")
         await self._async_dispose()
-
-    @classmethod
-    async def create(
-            cls,
-            host: str,
-            password: Optional[str]=None,
-            port: int=DEFAULT_PORT,
-            timeout_secs: float=DEFAULT_TIMEOUT,
-            model: Optional[JvcModel]=None,
-          ) -> Self:
-        transport = await TcpJvcProjectorClientTransport.create(
-                host,
-                password=password,
-                port=port,
-                timeout_secs=timeout_secs
-              )
-        try:
-            self = cls(transport, model=model)
-        except BaseException as e:
-            await transport.aclose()
-            raise
-        return self
 
     async def cmd_null(self) -> JvcResponse:
         """Send a null command."""
