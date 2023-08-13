@@ -139,7 +139,15 @@ class CommandHandler:
         async with await jvc_projector_connect(config=config) as client:
             responses: List[JvcResponse] = []
             for cmd_name in cmd_names:
-                if cmd_name == "on":
+                if cmd_name == "pause1":
+                    await asyncio.sleep(1.0)
+                elif cmd_name == "pause2":
+                    await asyncio.sleep(2.0)
+                elif cmd_name == "pause5":
+                    await asyncio.sleep(5.0)
+                elif cmd_name == "pause10":
+                    await asyncio.sleep(10.0)
+                elif cmd_name == "on":
                     response = await client.power_on_wait()
                 elif cmd_name == "start_on":
                     response = await client.power_on_wait(wait_for_final=False)

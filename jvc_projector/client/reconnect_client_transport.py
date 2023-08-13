@@ -12,6 +12,7 @@ that dynamically connects/disconnects/reconnects to another transport.
 
 from __future__ import annotations
 
+import time
 import asyncio
 from asyncio import Future
 from abc import ABC, abstractmethod
@@ -51,9 +52,10 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
     this allows multiple callers to use the same transport without worrying
     about mixing up response packets."""
 
-    idle_timer: Optional[asyncio.TimerHandle] = None
-    timing_out: bool = False
-    timeout_task: Optional[asyncio.Task[None]] = None
+    idle_timer_wakeup_queue: asyncio.Queue[None]
+    is_timing_out: bool = False
+    idle_timeout_task: Optional[asyncio.Task[None]] = None
+    next_idle_monotonic_time: float = 0.0
 
     def __init__(
             self,
@@ -66,6 +68,7 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
         self.connector = connector
         self.final_status = asyncio.get_event_loop().create_future()
         self._transaction_lock = asyncio.Lock()
+        self.idle_timer_wakeup_queue = asyncio.Queue()
 
     # @abstractmethod
     def is_shutting_down(self) -> bool:
@@ -87,43 +90,48 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
 
         if self.current_transport is None:
             self.current_transport = await self.connector.connect()
-            self.restart_idle_timer()
+            await self.restart_idle_timer()
 
         return self.current_transport
 
     def cancel_idle_timer(self) -> None:
         """Cancels the idle timer on the current transport."""
-        if self.idle_timer is not None:
-            self.idle_timer.cancel()
-            self.idle_timer = None
-        self.timing_out = False
-        if self.timeout_task is not None:
-            self.timeout_task.cancel()
-            self.timeout_task = None
+        self.is_timing_out = False
 
-    def restart_idle_timer(self) -> None:
+    async def restart_idle_timer(self) -> None:
         """Restarts the idle timer on the current transport."""
-        self.cancel_idle_timer()
-        if self.current_transport is not None:
-            self.timing_out = True
-            self.idle_timer = asyncio.get_event_loop().call_later(
-                self.config.idle_disconnect_secs,
-                lambda: self.idle_timeout_callback()
-            )
+        self.is_timing_out = False
+        if self.current_transport is not None and not self.is_shutting_down():
+            self.is_timing_out = True
+            self.next_idle_monotonic_time = time.monotonic() + self.config.idle_disconnect_secs
+            if self.idle_timeout_task is None:
+                self.idle_timeout_task = asyncio.get_event_loop().create_task(self._idle_timeout_func())
+            else:
+                self.idle_timer_wakeup_queue.put_nowait(None)
 
-    def idle_timeout_callback(self) -> None:
-        """Called when the idle timer expires."""
-        self.idle_timer = None
-        if self.timeout_task is None:
-            self.timeout_task = asyncio.get_event_loop().create_task(self.on_idle_timeout())
-
-    async def on_idle_timeout(self) -> None:
-        """Called when the idle timeout expires."""
-        if self.timing_out:
-            self.timing_out = False
-            if self.current_transport is not None:
-                logger.debug("Idle timeout; closing projector transport")
-                await self.current_transport.shutdown()
+    async def _idle_timeout_func(self) -> None:
+        """The idle timeout task."""
+        while not self.is_shutting_down():
+            if self.is_timing_out:
+                remaining_time = self.next_idle_monotonic_time - time.monotonic()
+                if remaining_time <= 0.0:
+                    # Idle timeout has expired; close the current transport
+                    self.is_timing_out = False
+                    if self.current_transport is not None:
+                        logger.debug("Idle timeout; closing projector transport")
+                        await self.current_transport.shutdown()
+                else:
+                    try:
+                       # Timing out with remaining_time idle seconds remaining;
+                       # expiration, restart_idle_timer(), or shutdown() will wake us up
+                        await asyncio.wait_for(
+                            self.idle_timer_wakeup_queue.get(), timeout=remaining_time
+                          )
+                    except asyncio.TimeoutError:
+                        pass
+            else:
+                # Not timing out; restart_idle_timer() or shutdown() will wake us up
+                await self.idle_timer_wakeup_queue.get()
 
     # @abstractmethod
     async def begin_transaction(self) -> None:
@@ -156,7 +164,7 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
             self.cancel_idle_timer()
             result = await transport.transact(command_packet)
         finally:
-            self.restart_idle_timer()
+            await self.restart_idle_timer()
 
         return result
 
@@ -177,8 +185,12 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
             else:
                 self.final_status.set_result(None)
         self.cancel_idle_timer()
+        if self.idle_timeout_task is not None:
+            self.idle_timer_wakeup_queue.put_nowait(None)
         if self.current_transport is not None:
             await self.current_transport.shutdown()
+        if self.idle_timeout_task is not None:
+            self.idle_timeout_task.cancel()
 
     # @abstractmethod
     async def wait(self) -> None:

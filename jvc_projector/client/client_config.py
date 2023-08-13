@@ -34,6 +34,7 @@ class JvcProjectorClientConfig:
     model: Optional[JvcModel]
     stable_power_timeout_secs: float
     idle_disconnect_secs: float
+    auto_reconnect: bool
 
     def __init__(
             self,
@@ -45,6 +46,7 @@ class JvcProjectorClientConfig:
             model: Optional[Union[JvcModel, str]]=None,
             stable_power_timeout_secs: Optional[float] = None,
             idle_disconnect_secs: Optional[float] = None,
+            auto_reconnect: Optional[bool] = None,
             base_config: Optional[JvcProjectorClientConfig]=None
           ) -> None:
         """Creates a configuration for a JVC Projector client.
@@ -87,6 +89,13 @@ class JvcProjectorClientConfig:
                    from WARMING or COOLING, in seconds. If None, a default
                    of 30 seconds is used.
 
+             auto_reconnect:
+                   For TCP transports, if True, the client transport will
+                   automatically be wrapped in a transport that reconnects
+                   on demand, and disconnects after an idle period. If None,
+                   the base configuration is used. If no base configuration
+                   is provided, the default is True.
+
              base_config:
                      An optional base configuration to use.
         """
@@ -122,6 +131,9 @@ class JvcProjectorClientConfig:
         if idle_disconnect_secs is not None:
             self.idle_disconnect_secs = idle_disconnect_secs
 
+        if auto_reconnect is not None:
+            self.auto_reconnect = auto_reconnect
+
     def init_from_defaults(self) -> None:
         """Initializes the configuration from defaults."""
         default_host: Optional[str] = os.environ.get('JVC_PROJECTOR_HOST')
@@ -143,6 +155,7 @@ class JvcProjectorClientConfig:
         self.model = None
         self.stable_power_timeout_secs = STABLE_POWER_TIMEOUT
         self.idle_disconnect_secs = IDLE_DISCONNECT_TIMEOUT
+        self.auto_reconnect = True
 
     def init_from_base_config(self, base_config: JvcProjectorClientConfig) -> None:
         """Initializes the configuration from a base configuration."""
@@ -153,6 +166,7 @@ class JvcProjectorClientConfig:
         self.model = base_config.model
         self.stable_power_timeout_secs = base_config.stable_power_timeout_secs
         self.idle_disconnect_secs = base_config.idle_disconnect_secs
+        self.auto_reconnect = base_config.auto_reconnect
 
     def __str__(self) -> str:
         return (

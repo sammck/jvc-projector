@@ -29,6 +29,7 @@ from .client_transport import (
   )
 
 from .tcp_connector import TcpJvcProjectorConnector
+from .reconnect_client_transport import ReconnectJvcProjectorClientTransport
 from .client_config import JvcProjectorClientConfig
 
 class GeneralJvcProjectorConnector(JvcProjectorConnector):
@@ -85,7 +86,14 @@ class GeneralJvcProjectorConnector(JvcProjectorConnector):
            a TCP/IP client transport for the projector associated with this
            connector.
         """
-        transport = await self.child_connector.connect()
+        transport: JvcProjectorClientTransport
+        if self.config.auto_reconnect:
+            transport = ReconnectJvcProjectorClientTransport(
+                connector=self.child_connector,
+                config=self.config
+              )
+        else:
+            transport = await self.child_connector.connect()
         return transport
 
     def __str__(self) -> str:
