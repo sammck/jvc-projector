@@ -214,7 +214,11 @@ class ReconnectJvcProjectorClientTransport(JvcProjectorClientTransport):
 
 
     def __str__(self) -> str:
-        return f"ReconnectJvcProjectorClientTransport({self.connector})"
+        if self.current_transport is not None:
+            result = f"ReconnectJvcProjectorClientTransport({self.current_transport})"
+        else:
+            result = f"ReconnectJvcProjectorClientTransport({self.connector})"
+        return result
 
     def __repr__(self) -> str:
         return str(self)

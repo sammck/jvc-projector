@@ -42,6 +42,7 @@ from .command_meta import (
     CommandMeta,
     JvcModel,
     models,
+    get_all_commands,
     name_to_command_meta,
     bytes_to_command_meta,
     model_status_list_map,

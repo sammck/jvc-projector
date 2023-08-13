@@ -18,6 +18,7 @@ from signal import SIGINT, SIGTERM
 
 from jvc_projector.internal_types import *
 from jvc_projector import (
+    __version__ as pkg_version,
     DEFAULT_PORT,
     JvcProjectorClient,
     JvcCommand,
@@ -26,16 +27,13 @@ from jvc_projector import (
     models,
     jvc_projector_connect,
     JvcProjectorClientConfig,
+    full_class_name,
   )
 
 from sddp_discovery_protocol import (
     SddpClient,
     SddpSearchRequest,
     SddpResponseInfo,
-  )
-
-from jvc_projector import (
-    __version__ as pkg_version,
   )
 
 class CmdExitError(RuntimeError):
@@ -65,15 +63,6 @@ class CommandHandler:
 
     def __init__(self, argv: Optional[Sequence[str]]=None):
         self._argv = argv
-
-    def _full_name_of_class(self, cls: Type[object]) -> str:
-        module = cls.__module__
-        if module == 'builtins':
-            return cls.__qualname__
-        return f"{module}.{cls.__qualname__}"
-
-    def _full_class_name(self, o: object) -> str:
-        return self._full_name_of_class(o.__class__)
 
     async def cmd_bare(self) -> int:
         print("A command is required", file=sys.stderr)
@@ -172,7 +161,7 @@ class CommandHandler:
                                 if not response_str is None:
                                     response_data["response_str"] = response_str
                     except Exception as exc:
-                        error_classname = self._full_class_name(exc)
+                        error_classname = full_class_name(exc)
                         error_message = str(exc)
                         if error_message == "":
                             error_message = error_classname

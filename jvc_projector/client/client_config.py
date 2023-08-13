@@ -13,6 +13,7 @@ supported transport protocols.
 from __future__ import annotations
 
 import os
+import json
 
 from ..internal_types import *
 from ..exceptions import JvcProjectorError
@@ -55,7 +56,8 @@ class JvcProjectorClientConfig:
             cache_sddp: Optional[bool] = None,
             connect_timeout_secs: Optional[float] = None,
             connect_retry_interval_secs: Optional[float] = None,
-            base_config: Optional[JvcProjectorClientConfig]=None
+            base_config: Optional[JvcProjectorClientConfig]=None,
+            use_config_file: bool = True,
           ) -> None:
         """Creates a configuration for a JVC Projector client.
 
@@ -129,7 +131,7 @@ class JvcProjectorClientConfig:
                      An optional base configuration to use.
         """
         if base_config is None:
-            self.init_from_defaults()
+            self.init_from_defaults(use_config_file=use_config_file)
         else:
             self.init_from_base_config(base_config)
 
@@ -172,23 +174,11 @@ class JvcProjectorClientConfig:
         if connect_retry_interval_secs is not None:
             self.connect_retry_interval_secs = connect_retry_interval_secs
 
-    def init_from_defaults(self) -> None:
+    def init_from_defaults(self, use_config_file: bool=True) -> None:
         """Initializes the configuration from defaults."""
-        default_host: Optional[str] = os.environ.get('JVC_PROJECTOR_HOST')
-        if default_host is None or default_host == '':
-            default_host = "sddp://" # Use SDDP discovery by default
-        self.default_host = default_host
-        default_port_str = os.environ.get('JVC_PROJECTOR_PORT')
-        default_port: Optional[int] = None
-        if default_port_str is None or default_port_str == '':
-            default_port = DEFAULT_PORT
-        else:
-            default_port = int(default_port_str)
-        self.default_port = default_port
-        password = os.environ.get('JVC_PROJECTOR_PASSWORD')
-        if password == '':
-            password = ''
-        self.password = password
+        self.default_host = 'sddp://'
+        self.default_port = DEFAULT_PORT
+        self.password = ''
         self.timeout_secs = DEFAULT_TIMEOUT
         self.model = None
         self.stable_power_timeout_secs = STABLE_POWER_TIMEOUT
@@ -197,6 +187,24 @@ class JvcProjectorClientConfig:
         self.cache_sddp = True
         self.connect_timeout_secs = CONNECT_TIMEOUT
         self.connect_retry_interval_secs = CONNECT_RETRY_INTERVAL
+
+        if use_config_file:
+            config_file = os.environ.get('JVC_PROJECTOR_CONFIG_FILE')
+            if config_file is not None and config_file != '':
+                with open(config_file, 'r') as f:
+                    config_jsonable = json.load(f)
+                self.update_from_jsonable(config_jsonable)
+
+        default_host: Optional[str] = os.environ.get('JVC_PROJECTOR_HOST')
+        if default_host is not None and default_host != '':
+            self.default_host = default_host
+        default_port_str = os.environ.get('JVC_PROJECTOR_PORT')
+        default_port: Optional[int] = None
+        if default_port_str is not None and default_port_str != '':
+            self.default_port = str(default_port_str)
+        password = os.environ.get('JVC_PROJECTOR_PASSWORD')
+        if password is not None and password != '':
+            self.password = password
 
     def init_from_base_config(self, base_config: JvcProjectorClientConfig) -> None:
         """Initializes the configuration from a base configuration."""
@@ -211,6 +219,86 @@ class JvcProjectorClientConfig:
         self.cache_sddp = base_config.cache_sddp
         self.connect_timeout_secs = base_config.connect_timeout_secs
         self.connect_retry_interval_secs = base_config.connect_retry_interval_secs
+
+    def to_jsonable(self) -> JsonableDict:
+        """Returns a JSON-serializable representation of the configuration."""
+        result: JsonableDict = dict(
+            default_host=self.default_host,
+            default_port=self.default_port,
+            password=self.password,
+            timeout_secs=self.timeout_secs,
+            stable_power_timeout_secs=self.stable_power_timeout_secs,
+            idle_disconnect_secs=self.idle_disconnect_secs,
+            auto_reconnect=self.auto_reconnect,
+            cache_sddp=self.cache_sddp,
+            connect_timeout_secs=self.connect_timeout_secs,
+            connect_retry_interval_secs=self.connect_retry_interval_secs,
+          )
+        if self.model is not None:
+            result['model'] = self.model.name
+        return result
+
+    def to_json(self) -> str:
+        """Returns a JSON representation of the configuration."""
+        return json.dumps(self.to_jsonable())
+
+    def update_from_jsonable(self, jsonable: JsonableDict) -> None:
+        """Creates a configuration from a JSON-serializable representation."""
+        default_host=jsonable.get('default_host')
+        if default_host is not None and default_host != '':
+            self.default_host = default_host
+        default_port=jsonable.get('default_port')
+        if default_port is not None and default_port != '':
+            self.default_port = int(default_port)
+        password=jsonable.get('password')
+        if password is not None and password != '':
+            self.password = password
+        timeout_secs=jsonable.get('timeout_secs')
+        if timeout_secs is not None and timeout_secs != '':
+            self.timeout_secs = int(timeout_secs)
+        model=jsonable.get('model')
+        if model is not None and model != '':
+            self.model = models[model]
+        stable_power_timeout_secs=jsonable.get('stable_power_timeout_secs')
+        if stable_power_timeout_secs is not None and stable_power_timeout_secs != '':
+            self.stable_power_timeout_secs = int(stable_power_timeout_secs)
+        idle_disconnect_secs=jsonable.get('idle_disconnect_secs')
+        if idle_disconnect_secs is not None and idle_disconnect_secs != '':
+            self.idle_disconnect_secs = int(idle_disconnect_secs)
+        auto_reconnect=jsonable.get('auto_reconnect')
+        if auto_reconnect is not None and auto_reconnect != '':
+            self.auto_reconnect = bool(auto_reconnect)
+        cache_sddp=jsonable.get('cache_sddp')
+        if cache_sddp is not None and cache_sddp != '':
+            self.cache_sddp = bool(cache_sddp)
+        connect_timeout_secs=jsonable.get('connect_timeout_secs')
+        if connect_timeout_secs is not None and connect_timeout_secs != '':
+            self.connect_timeout_secs = int(connect_timeout_secs)
+        connect_retry_interval_secs=jsonable.get('connect_retry_interval_secs')
+        if connect_retry_interval_secs is not None and connect_retry_interval_secs != '':
+            self.connect_retry_interval_secs = int(connect_retry_interval_secs)
+
+    @classmethod
+    def from_jsonable(cls, jsonable: JsonableDict, use_config_file: bool=True) -> 'JvcProjectorClientConfig':
+        """Creates a configuration from a JSON-serializable representation."""
+        result = cls(use_config_file=use_config_file)
+        result.update_from_jsonable(jsonable)
+        return result
+
+    @classmethod
+    def from_json(cls, json_str: str, use_config_file: bool=True) -> 'JvcProjectorClientConfig':
+        """Creates a configuration from a JSON representation."""
+        jsonable = json.loads(json_str)
+        return cls.from_jsonable(jsonable, use_config_file=use_config_file)
+
+    @classmethod
+    def from_config_file(cls, filename: str) -> 'JvcProjectorClientConfig':
+        """Creates a configuration from a JSON-serialized config file."""
+        with open(filename, 'r') as f:
+            jsonable: JsonableDict = json.load(f)
+
+        result = cls.from_jsonable(jsonable, use_config_file=False)
+        return result
 
     def __str__(self) -> str:
         return (

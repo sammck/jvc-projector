@@ -895,8 +895,8 @@ _group_metas: List[CommandGroupMeta] = [
         _C("select_2", b'\x4C\x31', "Lens Memory Select - Memory 2"),
         _C("select_3", b'\x4C\x32', "Lens Memory Select - Memory 3"),
       ]),
-    _G("test_command", b'\x01\x00', commands=[
-        _C("null_command", b'\x00', "Null Command (to check communication)"),
+    _G("test_command", b'\x00\x00', commands=[
+        _C("null_command", b'', "Null Command (to check communication)"),
       ]),
     _G("remote_control", b'\x52\x43\x37\x33', commands=[
         # Infrared remote control commands... These commands perform the same action as pressing the corresponding
@@ -1331,6 +1331,9 @@ def name_to_command_meta(name: str) -> CommandMeta:
         raise JvcProjectorError(f"Unknown command name: {name}")
     return result
 
+def get_all_commands() -> Dict[str, CommandMeta]:
+    """Returns a dictionary of all command metas, keyed by {group_name}.{command name}."""
+    return _command_metas
 
 _command_metas_by_bytes: Dict[bytes, List[CommandMeta]] = {}
 """A dictionary of all command metas, keyed by the packet bytes. This assumes that all
