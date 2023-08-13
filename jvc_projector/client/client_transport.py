@@ -149,6 +149,10 @@ class JvcProjectorClientTransport(ABC):
         async with self.transaction() as transaction:
             return await transaction.multi_transact(command_packets)
 
+    @abstractmethod
+    def is_shutting_down(self) -> bool:
+        """Returns True if the transport is shutting down or closed."""
+        raise NotImplementedError()
 
     @abstractmethod
     async def shutdown(self, exc: Optional[BaseException] = None) -> None:

@@ -22,6 +22,8 @@ from ..constants import DEFAULT_TIMEOUT, DEFAULT_PORT
 from ..pkg_logging import logger
 from ..protocol import Packet, PJ_OK, PJREQ, PJACK, PJNAK
 
+from .client_config import JvcProjectorClientConfig
+
 from .client_transport import (
     JvcProjectorClientTransport,
     ResponsePackets
@@ -34,6 +36,7 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
+    config: JvcProjectorClientConfig
     host: str
     port: int
     password: Optional[str] = None
@@ -50,20 +53,36 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
 
     def __init__(
             self,
-            host: str,
+            host: Optional[str]=None,
             password: Optional[str]=None,
-            port: int=DEFAULT_PORT,
-            timeout_secs: float = DEFAULT_TIMEOUT
+            *,
+            port: Optional[int]=None,
+            timeout_secs: Optional[float]=None,
+            config: Optional[JvcProjectorClientConfig]=None,
           ) -> None:
         """Initializes the transport.
         """
         super().__init__()
-        self.host = host
-        self.port = port
-        self.password = password
-        self.timeout_secs = timeout_secs
+        self.config = JvcProjectorClientConfig(
+            default_host=host,
+            default_port=port,
+            password=password,
+            timeout_secs=timeout_secs,
+            base_config=config
+        )
+        assert self.config.default_host is not None
+        assert self.config.default_port is not None
+        self.host = self.config.default_host
+        self.port = self.config.default_port
+        self.password = self.config.password
+        self.timeout_secs = self.config.timeout_secs
         self.final_status = asyncio.get_event_loop().create_future()
         self._transaction_lock = asyncio.Lock()
+
+    # @abstractmethod
+    def is_shutting_down(self) -> bool:
+        """Returns True if the transport is shutting down or closed."""
+        return self.final_status.done()
 
     # @abstractmethod
     async def begin_transaction(self) -> None:

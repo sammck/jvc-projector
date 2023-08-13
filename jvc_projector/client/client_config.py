@@ -16,7 +16,12 @@ import os
 
 from ..internal_types import *
 from ..exceptions import JvcProjectorError
-from ..constants import DEFAULT_TIMEOUT, DEFAULT_PORT, STABLE_POWER_TIMEOUT
+from ..constants import (
+    DEFAULT_TIMEOUT,
+    DEFAULT_PORT,
+    STABLE_POWER_TIMEOUT,
+    IDLE_DISCONNECT_TIMEOUT,
+  )
 from ..pkg_logging import logger
 from ..protocol import JvcModel, models
 
@@ -28,6 +33,7 @@ class JvcProjectorClientConfig:
     timeout_secs: float
     model: Optional[JvcModel]
     stable_power_timeout_secs: float
+    idle_disconnect_secs: float
 
     def __init__(
             self,
@@ -38,6 +44,7 @@ class JvcProjectorClientConfig:
             timeout_secs: Optional[float] = None,
             model: Optional[Union[JvcModel, str]]=None,
             stable_power_timeout_secs: Optional[float] = None,
+            idle_disconnect_secs: Optional[float] = None,
             base_config: Optional[JvcProjectorClientConfig]=None
           ) -> None:
         """Creates a configuration for a JVC Projector client.
@@ -67,6 +74,10 @@ class JvcProjectorClientConfig:
                    JVC_PROJECTOR_TIMEOUT environment variable.
                    If the environment variable is not found, the
                    default timeout will be used.
+             idle_disconnect_secs:
+                   For auto-connect transports, the timeout for
+                   disconnecting from the projector when idle, in seconds.
+                   If None, IDLE_DISCONNECT_TIMOUT is used.
              model:
                    The projector model. If None, the model will be
                    inferred if necessary from SDDP, model_status.query,
@@ -108,6 +119,9 @@ class JvcProjectorClientConfig:
         if stable_power_timeout_secs is not None:
             self.stable_power_timeout_secs = stable_power_timeout_secs
 
+        if idle_disconnect_secs is not None:
+            self.idle_disconnect_secs = idle_disconnect_secs
+
     def init_from_defaults(self) -> None:
         """Initializes the configuration from defaults."""
         default_host: Optional[str] = os.environ.get('JVC_PROJECTOR_HOST')
@@ -128,6 +142,7 @@ class JvcProjectorClientConfig:
         self.timeout_secs = DEFAULT_TIMEOUT
         self.model = None
         self.stable_power_timeout_secs = STABLE_POWER_TIMEOUT
+        self.idle_disconnect_secs = IDLE_DISCONNECT_TIMEOUT
 
     def init_from_base_config(self, base_config: JvcProjectorClientConfig) -> None:
         """Initializes the configuration from a base configuration."""
@@ -137,6 +152,7 @@ class JvcProjectorClientConfig:
         self.timeout_secs = base_config.timeout_secs
         self.model = base_config.model
         self.stable_power_timeout_secs = base_config.stable_power_timeout_secs
+        self.idle_disconnect_secs = base_config.idle_disconnect_secs
 
     def __str__(self) -> str:
         return (

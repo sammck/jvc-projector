@@ -14,6 +14,10 @@ DEFAULT_TIMEOUT = 2.0
 STABLE_POWER_TIMEOUT = 60.0
 """The timeout for the projector to reach a stable power state from WARMING or COOLING, in seconds."""
 
+IDLE_DISCONNECT_TIMEOUT = 2.0
+"""For autoconnect transports, the timeout for the client to disconnect after an idle period,
+   in seconds."""
+
 # Initial connection handshake:
 #   Projector: "PJ_OK"
 #   Client: "PJREQ", if there is no password, or f"PJREQ_{password}" if there is a password
