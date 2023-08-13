@@ -137,8 +137,10 @@ class CommandHandler:
         if len(cmd_names) == 0:
             raise CmdExitError(1, "No projector commands specified")
         async with await jvc_projector_connect(config=config) as client:
-            responses: List[JvcResponse] = []
+            response_datas: List[JsonableDict] = []
+            response: Optional[JvcResponse] = None
             for cmd_name in cmd_names:
+                # pause commands are mainly for debugging timeouts
                 if cmd_name == "pause1":
                     await asyncio.sleep(1.0)
                 elif cmd_name == "pause2":
@@ -157,20 +159,20 @@ class CommandHandler:
                     response = await client.power_off_wait(wait_for_final=False)
                 else:
                     response = await client.transact_by_name(cmd_name)
-                responses.append(response)
-            response_datas: List[JsonableDict] = []
-            for response in responses:
-                command = response.command
-                response_data: JsonableDict = dict(
-                    name=command.name,
-                )
-                payload = response.payload
-                if len(payload) > 0:
-                    response_data["payload_hex"] = response.payload.hex(' ')
-                    response_str = response.response_str()
-                    if not response_str is None:
-                        response_data["response_str"] = response_str
-                response_datas.append(response_data)
+                if response is None:
+                    response_datas.append(dict(name=cmd_name))
+                else:
+                    command = response.command
+                    response_data: JsonableDict = dict(
+                        name=command.name,
+                    )
+                    payload = response.payload
+                    if len(payload) > 0:
+                        response_data["payload_hex"] = response.payload.hex(' ')
+                        response_str = response.response_str()
+                        if not response_str is None:
+                            response_data["response_str"] = response_str
+                    response_datas.append(response_data)
             print(json.dumps(response_datas, indent=2))
         return 0
 
