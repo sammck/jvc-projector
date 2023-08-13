@@ -21,6 +21,8 @@ from ..constants import (
     DEFAULT_PORT,
     STABLE_POWER_TIMEOUT,
     IDLE_DISCONNECT_TIMEOUT,
+    CONNECT_TIMEOUT,
+    CONNECT_RETRY_INTERVAL,
   )
 from ..pkg_logging import logger
 from ..protocol import JvcModel, models
@@ -35,6 +37,9 @@ class JvcProjectorClientConfig:
     stable_power_timeout_secs: float
     idle_disconnect_secs: float
     auto_reconnect: bool
+    cache_sddp: bool
+    connect_timeout_secs: float
+    connect_retry_interval_secs: float
 
     def __init__(
             self,
@@ -47,6 +52,9 @@ class JvcProjectorClientConfig:
             stable_power_timeout_secs: Optional[float] = None,
             idle_disconnect_secs: Optional[float] = None,
             auto_reconnect: Optional[bool] = None,
+            cache_sddp: Optional[bool] = None,
+            connect_timeout_secs: Optional[float] = None,
+            connect_retry_interval_secs: Optional[float] = None,
             base_config: Optional[JvcProjectorClientConfig]=None
           ) -> None:
         """Creates a configuration for a JVC Projector client.
@@ -96,6 +104,27 @@ class JvcProjectorClientConfig:
                    the base configuration is used. If no base configuration
                    is provided, the default is True.
 
+             cache_sddp:
+                   For sddp:// host names, cache the results of SDDP discovery
+                   and use them for subsequent connections. If None, the base
+                   configuration is used. If no base configuration is provided,
+                   the default is True.
+
+             connect_timeout_secs:
+                    For TCP transports, the timeout for connecting to the
+                    projector, in seconds. If None, the base configuration
+                    is used. If no base configuration is provided,
+                    CONNECT_TIMEOUT is used.
+
+             connect_retry_interval_secs:
+                    For TCP transports, the interval between connection
+                    attempts, in seconds. If None, the base configuration
+                    is used. If no base configuration is provided,
+                    CONNECT_RETRY_INTERVAL is used. Connection retry is
+                    necessary because JVC projectors only allow one
+                    connection at a time, and the projector may be
+                    connected to another client.
+
              base_config:
                      An optional base configuration to use.
         """
@@ -134,6 +163,15 @@ class JvcProjectorClientConfig:
         if auto_reconnect is not None:
             self.auto_reconnect = auto_reconnect
 
+        if cache_sddp is not None:
+            self.cache_sddp = cache_sddp
+
+        if connect_timeout_secs is not None:
+            self.connect_timeout_secs = connect_timeout_secs
+
+        if connect_retry_interval_secs is not None:
+            self.connect_retry_interval_secs = connect_retry_interval_secs
+
     def init_from_defaults(self) -> None:
         """Initializes the configuration from defaults."""
         default_host: Optional[str] = os.environ.get('JVC_PROJECTOR_HOST')
@@ -156,6 +194,9 @@ class JvcProjectorClientConfig:
         self.stable_power_timeout_secs = STABLE_POWER_TIMEOUT
         self.idle_disconnect_secs = IDLE_DISCONNECT_TIMEOUT
         self.auto_reconnect = True
+        self.cache_sddp = True
+        self.connect_timeout_secs = CONNECT_TIMEOUT
+        self.connect_retry_interval_secs = CONNECT_RETRY_INTERVAL
 
     def init_from_base_config(self, base_config: JvcProjectorClientConfig) -> None:
         """Initializes the configuration from a base configuration."""
@@ -167,6 +208,9 @@ class JvcProjectorClientConfig:
         self.stable_power_timeout_secs = base_config.stable_power_timeout_secs
         self.idle_disconnect_secs = base_config.idle_disconnect_secs
         self.auto_reconnect = base_config.auto_reconnect
+        self.cache_sddp = base_config.cache_sddp
+        self.connect_timeout_secs = base_config.connect_timeout_secs
+        self.connect_retry_interval_secs = base_config.connect_retry_interval_secs
 
     def __str__(self) -> str:
         return (

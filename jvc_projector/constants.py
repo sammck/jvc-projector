@@ -18,6 +18,12 @@ IDLE_DISCONNECT_TIMEOUT = 2.0
 """For autoconnect transports, the timeout for the client to disconnect after an idle period,
    in seconds."""
 
+CONNECT_TIMEOUT = 10.0
+"""The timeout for connecting to the projector over TCP/IP, in seconds."""
+
+CONNECT_RETRY_INTERVAL = 0.5
+"""The interval between connection attempts over TCP/IP, in seconds."""
+
 # Initial connection handshake:
 #   Projector: "PJ_OK"
 #   Client: "PJREQ", if there is no password, or f"PJREQ_{password}" if there is a password

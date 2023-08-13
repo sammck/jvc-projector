@@ -172,9 +172,14 @@ class CommandHandler:
                                 if not response_str is None:
                                     response_data["response_str"] = response_str
                     except Exception as exc:
+                        error_classname = self._full_class_name(exc)
+                        error_message = str(exc)
+                        if error_message == "":
+                            error_message = error_classname
+
                         response_data.update(
-                            error=self._full_class_name(exc),
-                            error_message=str(exc),
+                            error=error_classname,
+                            error_message=error_message,
                           )
                         response_datas.append(response_data)
                         if not continue_on_error:

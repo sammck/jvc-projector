@@ -92,15 +92,10 @@ class TcpJvcProjectorConnector(JvcProjectorConnector):
            a TCP/IP client transport for the projector associated with this
            connector.
         """
-
-        transport = await TcpJvcProjectorClientTransport.create(
-            self.config.default_host,
-            password=self.config.password,
-            port=self.config.default_port,
-            timeout_secs=self.config.timeout_secs
-          )
+        transport = TcpJvcProjectorClientTransport(config=self.config)
+        await transport.connect()
+        # on error, the transport will be shut down, and no further interaction is possible
         return transport
-
 
     def __str__(self) -> str:
         return f"TcpJvcProjectorConnector(host='{self.config.default_host}', port={self.config.default_port})"

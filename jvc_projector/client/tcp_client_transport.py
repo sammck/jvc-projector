@@ -12,6 +12,7 @@ socket.
 
 from __future__ import annotations
 
+import time
 import asyncio
 from asyncio import Future
 from abc import ABC, abstractmethod
@@ -37,10 +38,8 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
     config: JvcProjectorClientConfig
-    host: str
-    port: int
-    password: Optional[str] = None
-    timeout_secs: float
+    resolved_host: str
+    resolved_port: int
     final_status: Future[None]
     reader_closed: bool = False
     writer_closed: bool = False
@@ -56,8 +55,6 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
             host: Optional[str]=None,
             password: Optional[str]=None,
             *,
-            port: Optional[int]=None,
-            timeout_secs: Optional[float]=None,
             config: Optional[JvcProjectorClientConfig]=None,
           ) -> None:
         """Initializes the transport.
@@ -65,19 +62,42 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
         super().__init__()
         self.config = JvcProjectorClientConfig(
             default_host=host,
-            default_port=port,
             password=password,
-            timeout_secs=timeout_secs,
             base_config=config
         )
         assert self.config.default_host is not None
         assert self.config.default_port is not None
-        self.host = self.config.default_host
-        self.port = self.config.default_port
-        self.password = self.config.password
-        self.timeout_secs = self.config.timeout_secs
+        self.resolved_host = self.config.default_host
+        self.resolved_port = self.config.default_port
         self.final_status = asyncio.get_event_loop().create_future()
         self._transaction_lock = asyncio.Lock()
+
+    @property
+    def host_string(self) -> str:
+        """Returns the unresolved host string."""
+        result = self.config.default_host
+        assert result is not None
+        return result
+
+    @property
+    def host(self) -> str:
+        """Returns the resolved TCP/IP host. Before connect() this will be the host string,"""
+        return self.resolved_host
+
+    @property
+    def port(self) -> int:
+        """Returns the resolved TCP/IP port. Before connect() this will be the default port."""
+        return self.resolved_port
+
+    @property
+    def password(self) -> Optional[str]:
+        """Returns the password."""
+        return self.config.password
+
+    @property
+    def timeout_secs(self) -> float:
+        """Returns the timeout in seconds."""
+        return self.config.timeout_secs
 
     # @abstractmethod
     def is_shutting_down(self) -> bool:
@@ -317,12 +337,38 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
             async with self._transaction_lock:
                 try:
                     assert self.reader is None and self.writer is None
+                    self.resolved_host, self.resolved_port, _ = await resolve_projector_tcp_host(
+                        config=self.config)
                     logger.debug(f"Connecting to projector at {self.host}:{self.port}")
-                    self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+                    connect_end_time = time.monotonic() + self.config.connect_timeout_secs
+                    while True:
+                        next_retry_time = min(
+                            connect_end_time,
+                            time.monotonic() + self.config.connect_retry_interval_secs)
+                        try:
+                            wait_time = max(connect_end_time - time.monotonic(), 0.25)
+                            logger.warning(f"Trying projector connect to {self.host}:{self.port} with timeout={wait_time}")
+                            self.reader, self.writer = await asyncio.wait_for(
+                                asyncio.open_connection(self.host, self.port),
+                                timeout=wait_time)
+                            break
+                        except ConnectionRefusedError as e:
+                            # If the projector is servicing another client, it will refuse
+                            # the connection. We retry until the timeout expires.
+                            if time.monotonic() >= connect_end_time:
+                                raise
+                            else:
+                                retry_sleep_time = next_retry_time - time.monotonic()
+                                if retry_sleep_time > 0:
+                                    logger.debug(f"Connection refused, sleeping for {retry_sleep_time} seconds")
+                                    await asyncio.sleep(retry_sleep_time)
+                                logger.debug("Connection refused, retrying")
+                        except asyncio.TimeoutError as e:
+                            logger.debug("Timeout connecting to projector")
                     # Perform the initial handshake. This is a bit weird, since the projector
                     # sends a greeting, then we send a request, then the projector sends an
                     # acknowledgement, but none of these include a terminating newline.
-                    logger.debug(f"Handshake: Waiting for greeting")
+                    logger.debug(f"Projector TCP connection established; Handshake: Waiting for greeting")
                     greeting = await self._read_exactly(len(PJ_OK))
                     if greeting != PJ_OK:
                         raise JvcProjectorError(f"Handshake: Unexpected greeting (expected {PJ_OK.hex(' ')}): {greeting.hex(' ')}")
@@ -349,50 +395,6 @@ class TcpJvcProjectorClientTransport(JvcProjectorClientTransport):
         except BaseException as e:
             await self.aclose(e)
             raise
-
-    @classmethod
-    async def create(
-            cls,
-            host: Optional[str]=None,
-            password: Optional[str]=None,
-            port: Optional[int]=None,
-            timeout_secs: float=DEFAULT_TIMEOUT
-          ) -> Self:
-        """Creates and connects a transport to
-           a JVC Projector that is reachable over TCP/IP.
-
-              Args:
-                host: The hostname or IPV4 address of the projector.
-                      may optionally be prefixed with "tcp://".
-                      May be suffixed with ":<port>" to specify a
-                      non-default port, which will override the port argument.
-                      May be "sddp://" or "sddp://<host>" to use
-                      SSDP to discover the projector.
-                      If None, the host will be taken from the
-                        JVC_PROJECTOR_HOST environment variable.
-                password:
-                      The projector password. If None, the password
-                      will be taken from the JVC_PROJECTOR_PASSWORD
-                      environment variable. If an empty string or the
-                      environment variable is not found, no password
-                      will be used.
-                port: The default TCP/IP port number to use. If None, the port
-                      will be taken from the JVC_PROJECTOR_PORT. If that
-                      environment variable is not found, the default JVC
-                      projector port (20554) will be used.
-                timeout_secs: The default timeout for operations on the
-                        transport. If not provided, DEFAULT_TIMEOUT (2 seconds)
-                        is used.
-        """
-        final_host, final_port, sddp_info = await resolve_projector_tcp_host(
-            host,
-            port
-          )
-
-        transport = cls(final_host, password=password, port=final_port, timeout_secs=timeout_secs)
-        await transport.connect()
-        # on error, the transport will be shut down, and no further interaction is possible
-        return transport
 
     def __str__(self) -> str:
         return f"TcpJvcProjectorClientTransport({self.host}:{self.port})"

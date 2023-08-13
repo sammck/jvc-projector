@@ -27,6 +27,16 @@ from .client_transport import (
     JvcProjectorClientTransport,
     ResponsePackets
   )
+from .client_config import JvcProjectorClientConfig
+
+_cached_sddp_responses: Dict[str, SddpResponseInfo] = {}
+"""A cache of all known SDDP responses, keyed by SDDP host name."""
+
+_last_cached_sddp_response: Optional[SddpResponseInfo] = None
+"""The last SDDP response info that was cached."""
+
+_sddp_cache_mutex: asyncio.Lock = asyncio.Lock()
+"""A mutex to protect the shared SDDP cache."""
 
 import sddp_discovery_protocol as sddp
 from sddp_discovery_protocol import SddpClient, SddpResponseInfo
@@ -34,8 +44,9 @@ from sddp_discovery_protocol import SddpClient, SddpResponseInfo
 async def resolve_projector_tcp_host(
         host: Optional[str]=None,
         default_port: Optional[int]=None,
+        config: Optional[JvcProjectorClientConfig]=None,
       ) -> Tuple[str, int, Optional[SddpResponseInfo]]:
-    """Resolves a projector host string into a hostname and port.
+    """Resolves a projector host string into a TCP/IP hostname and port.
 
         Args:
             host: The hostname or IPV4 address of the projector.
@@ -44,56 +55,64 @@ async def resolve_projector_tcp_host(
                     non-default port, which will override the default_port argument.
                     May be "sddp://" or "sddp://<sddp-hostname>" to use
                     SSDP to discover the projector.
-                    If None, the host will be taken from the
-                    JVC_PROJECTOR_HOST environment variable.
+                    If None, the default host in config is used.
             default_port: The default TCP/IP port number to use. If None, the port
-                    will be taken from the JVC_PROJECTOR_PORT. If that
-                    environment variable is not found, the default JVC
-                    projector port (20554) will be used.
+                    will be taken from the config.
 
         Returns:
             A tuple of (hostname: str, port: int, sddp_response_info: Optional[SddpResponseInfo]) where:
-                hostname: The resolved IP address.
+                hostname: The resolved IP address or DNS name.
                 port:     The resolved port number.
                 sddp_response_info:
                           The SDDP response info, if SDDP was used to
                           discover the projector. None otherwise.
     """
-    if host is None or host == '':
-        host = os.environ.get('JVC_PROJECTOR_HOST')
-        if host is None or host == '':
-            host = "sddp://" # Use SDDP discovery
+    global _last_cached_sddp_response
 
-    if default_port is None or default_port <= 0:
-        default_port_str = os.environ.get('JVC_PROJECTOR_PORT')
-        if default_port_str is None or default_port_str == '':
-            default_port = DEFAULT_PORT
-        else:
-            default_port = int(default_port_str)
+    config = JvcProjectorClientConfig(
+        default_host=host,
+        default_port=default_port,
+        base_config=config
+    )
+    host = config.default_host
+    assert host is not None
+    default_port = config.default_port
+    assert default_port is not None
 
     result_host: Optional[str] = None
-    port: Optional[int] = None
     sddp_response_info: Optional[sddp.SddpResponseInfo] = None
 
     if host.startswith('sddp://'):
         sddp_host: Optional[str] = host[7:]
         if sddp_host == '':
             sddp_host = None
-        filter_headers: Dict[str, str] ={
-            "Manufacturer": "JVCKENWOOD",
-            "Primary-Proxy": "projector",
-          }
-
-        async with SddpClient(include_loopback=True) as sddp_client:
-            async with sddp_client.search(filter_headers=filter_headers) as search_request:
-                async for response in search_request:
-                    if sddp_host is None or response.datagram.hdr_host == sddp_host:
-                        sddp_response_info = response
-                        break
+        async with _sddp_cache_mutex:
+            if config.cache_sddp:
+                if sddp_host is None:
+                    if _last_cached_sddp_response is not None:
+                        sddp_response_info = _last_cached_sddp_response
                 else:
-                    raise JvcProjectorError("SDDP discovery failed to find a projector")
+                    sddp_response_info = _cached_sddp_responses.get(sddp_host)
+            if sddp_response_info is None:
+                filter_headers: Dict[str, str] ={
+                    "Manufacturer": "JVCKENWOOD",
+                    "Primary-Proxy": "projector",
+                }
 
-        assert sddp_response_info is not None
+                async with SddpClient(include_loopback=True) as sddp_client:
+                    async with sddp_client.search(filter_headers=filter_headers) as search_request:
+                        async for response in search_request:
+                            if sddp_host is None or response.datagram.hdr_host == sddp_host:
+                                sddp_response_info = response
+                                break
+                        else:
+                            raise JvcProjectorError("SDDP discovery failed to find a projector")
+
+                assert sddp_response_info is not None
+                _last_cached_sddp_response = sddp_response_info
+                sddp_hostname = sddp_response_info.datagram.hdr_host
+                if sddp_hostname is not None:
+                    _cached_sddp_responses[sddp_hostname] = sddp_response_info
         result_host = sddp_response_info.src_addr[0]
         optional_port = sddp_response_info.datagram.headers.get('Port')
         if optional_port is None:
