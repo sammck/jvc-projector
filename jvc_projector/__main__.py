@@ -66,6 +66,15 @@ class CommandHandler:
     def __init__(self, argv: Optional[Sequence[str]]=None):
         self._argv = argv
 
+    def _full_name_of_class(self, cls: Type[object]) -> str:
+        module = cls.__module__
+        if module == 'builtins':
+            return cls.__qualname__
+        return f"{module}.{cls.__qualname__}"
+
+    def _full_class_name(self, o: object) -> str:
+        return self._full_name_of_class(o.__class__)
+
     async def cmd_bare(self) -> int:
         print("A command is required", file=sys.stderr)
         return 1
@@ -119,14 +128,7 @@ class CommandHandler:
         return 0
 
     async def cmd_exec(self) -> int:
-        # parser_exec.add_argument("--port", default=DEFAULT_PORT, type=int,
-        #     help=f"JVC projector port number to connect to. Default: {DEFAULT_PORT}")
-        # parser_exec.add_argument("-p", "--password", default=None,
-        #     help="Password to use for authentication. Default: None (no password required).")
-        # parser_exec.add_argument('--host', default=None,
-        #                     help='''The projector host address. Default: use env var JVC_PROJECTOR_HOST.''')
-        # parser_exec.add_argument('exec_command', nargs=argparse.REMAINDER,
-        #                     help='''One or more named commands to execute; e.g., "power.on".''')
+        continue_on_error: bool = self._args.continue_on_error
         config = JvcProjectorClientConfig(
             default_host=self._args.host,
             password=self._args.password,
@@ -136,43 +138,52 @@ class CommandHandler:
         cmd_names = self._args.exec_command
         if len(cmd_names) == 0:
             raise CmdExitError(1, "No projector commands specified")
-        async with await jvc_projector_connect(config=config) as client:
-            response_datas: List[JsonableDict] = []
-            response: Optional[JvcResponse] = None
-            for cmd_name in cmd_names:
-                # pause commands are mainly for debugging timeouts
-                if cmd_name == "pause1":
-                    await asyncio.sleep(1.0)
-                elif cmd_name == "pause2":
-                    await asyncio.sleep(2.0)
-                elif cmd_name == "pause5":
-                    await asyncio.sleep(5.0)
-                elif cmd_name == "pause10":
-                    await asyncio.sleep(10.0)
-                elif cmd_name == "on":
-                    response = await client.power_on_wait()
-                elif cmd_name == "start_on":
-                    response = await client.power_on_wait(wait_for_final=False)
-                elif cmd_name == "off":
-                    response = await client.power_off_wait()
-                elif cmd_name == "start_off":
-                    response = await client.power_off_wait(wait_for_final=False)
-                else:
-                    response = await client.transact_by_name(cmd_name)
-                if response is None:
-                    response_datas.append(dict(name=cmd_name))
-                else:
-                    command = response.command
-                    response_data: JsonableDict = dict(
-                        name=command.name,
-                    )
-                    payload = response.payload
-                    if len(payload) > 0:
-                        response_data["payload_hex"] = response.payload.hex(' ')
-                        response_str = response.response_str()
-                        if not response_str is None:
-                            response_data["response_str"] = response_str
-                    response_datas.append(response_data)
+        response_datas: List[JsonableDict] = []
+        try:
+            async with await jvc_projector_connect(config=config) as client:
+                for cmd_name in cmd_names:
+                    response: Optional[JvcResponse] = None
+                    response_data: JsonableDict = dict(name=cmd_name)
+                    try:
+                        # pause commands are mainly for debugging timeouts
+                        if cmd_name == "pause1":
+                            await asyncio.sleep(1.0)
+                        elif cmd_name == "pause2":
+                            await asyncio.sleep(2.0)
+                        elif cmd_name == "pause5":
+                            await asyncio.sleep(5.0)
+                        elif cmd_name == "pause10":
+                            await asyncio.sleep(10.0)
+                        elif cmd_name == "on":
+                            response = await client.power_on_wait()
+                        elif cmd_name == "start_on":
+                            response = await client.power_on_wait(wait_for_final=False)
+                        elif cmd_name == "off":
+                            response = await client.power_off_wait()
+                        elif cmd_name == "start_off":
+                            response = await client.power_off_wait(wait_for_final=False)
+                        else:
+                            response = await client.transact_by_name(cmd_name)
+                        if not response is None:
+                            payload = response.payload
+                            if len(payload) > 0:
+                                response_data["payload_hex"] = response.payload.hex(' ')
+                                response_str = response.response_str()
+                                if not response_str is None:
+                                    response_data["response_str"] = response_str
+                    except Exception as exc:
+                        response_data.update(
+                            error=self._full_class_name(exc),
+                            error_message=str(exc),
+                          )
+                        response_datas.append(response_data)
+                        if not continue_on_error:
+                            raise
+                    else:
+                        response_datas.append(response_data)
+        except Exception as exc:
+            raise
+        finally:
             print(json.dumps(response_datas, indent=2))
         return 0
 
@@ -233,13 +244,17 @@ class CommandHandler:
 
         parser_emulator.set_defaults(func=self.cmd_emulator)
 
+        # ======================= exec
+
         parser_exec = subparsers.add_parser('exec', description="Execute one or more commands in the projector.")
-        parser_exec.add_argument("--port", default=DEFAULT_PORT, type=int,
-            help=f"JVC projector port number to connect to. Default: {DEFAULT_PORT}")
-        parser_exec.add_argument("-p", "--password", default=None,
-            help="Password to use for authentication. Default: None (no password required).")
         parser_exec.add_argument('--host', default=None,
                             help='''The projector host address. Default: use env var JVC_PROJECTOR_HOST.''')
+        parser_exec.add_argument("--port", default=DEFAULT_PORT, type=int,
+            help=f"Default projector port number to connect to. Default: {DEFAULT_PORT}")
+        parser_exec.add_argument("-p", "--password", default=None,
+            help="Password to use for authentication. Default: None (no password required).")
+        parser_exec.add_argument('--continue', dest="continue_on_error", action='store_true', default=False,
+                            help='Continue running commands on error. Default: False')
         parser_exec.add_argument('exec_command', nargs=argparse.REMAINDER,
                             help='''One or more named commands to execute; e.g., "power.on".''')
 
