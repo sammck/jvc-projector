@@ -37,7 +37,7 @@ metadata {
 preferences {
     input "apiServerURI", "text", title: "API Server URI", displayDuringSetup: true
     input "pollingInterval", "number", title: "Polling Interval", description: "in seconds", range: "10..300", defaultValue: 30, displayDuringSetup: true
-    input "transitionPollingInterval", "number", title: "Transition Polling Interval", description: "in seconds", range: "10..300", defaultValue: 1, displayDuringSetup: false
+    input "transitionPollingInterval", "number", title: "Transition Polling Interval", description: "in seconds", range: "1..300", defaultValue: 1, displayDuringSetup: false
     input name: "logEnable", type: "bool", title: "Enable debug logging", defaultValue: true, displayDuringSetup: false
 }
 
@@ -62,16 +62,16 @@ Map successfulApiResponse(Map response_data) {
     return response_data
 }
 
-def updatePowerStatus(String powerStatus) {
+def updatePowerStatus(String  rawPowerStatus) {
     /* Updates the driver state from a detected projector power status.
      * If the power status has changed, sends "powerStatus" and "switch" events.
      * For the purposes of the "switch" capabiility, the projector is considered
      * "on" if it is in "On" or "Warming" mode, and "off" otherwise.
      */
-    if (powerStatus != null) {
-        state.rawPowerStatus = powerStatus
+    if ( rawPowerStatus != null) {
+        state.rawPowerStatus =  rawPowerStatus
         currentPowerState = device.currentValue("powerStatus")
-        newPowerState = powerStatus.toLowerCase()
+        newPowerState = rawPowerStatus.toLowerCase()
         if (newPowerState != currentPowerState) {
             if (logEnable) log.debug "Got updated power status  ${newPowerState}"
             sendEvent(
@@ -100,13 +100,13 @@ def updateFromApiResponse(String apiPath, Map response) {
     if (    apiPath == "v1/execute/power_status.query" ||
             apiPath == "v1/execute/on" ||
             apiPath == "v1/execute/off" ||
-            apiPath == "v1/execute/on_start" ||
-            apiPath == "v1/execute/off_start" ||
+            apiPath == "v1/execute/start_on" ||
+            apiPath == "v1/execute/start_off" ||
             apiPath == "v1/execute/power_status_wait"
             ) {
         if (response.containsKey("response_str")) {
-            String powerStatus = response.response_str
-            updatePowerStatus(powerStatus)
+            String rawPowerStatus = response.response_str
+            updatePowerStatus( rawPowerStatus)
         } else {
             updatePowerStatus(null)
         }
@@ -127,9 +127,15 @@ def onAsyncApiComplete(response, Map data) {
     Map apiData = data.apiData
     Closure callbackMethod = data.callbackMethod
     Map responseData = null
-    if (logEnable) log.debug "onAsyncApiComplete: apiPath=${apiPath}, status=${response.status}, callbackMethod=${callbackMethod}"
-    if (response.success) {
-        responseData = response.data
+    if (logEnable) log.debug "onAsyncApiComplete: apiPath=${apiPath}, status=${response.status}"
+    if (response.status == 200) {
+        if (response.data instanceof Map) {
+            responseData = response.data
+        } else if(response.data instanceof String) {
+            responseData = parseJson(response.data)
+        } else {
+            responseData = [:]
+        }
         if (!responseData.containsKey("status")) {
             if (!responseData.containsKey("error")) {
                 responseData.status = "OK"
@@ -143,17 +149,17 @@ def onAsyncApiComplete(response, Map data) {
         responseData = [
             status: "FAIL",
             http_status: response.status,
-            data: response.data,
             error: "HttpError",
             error_message: "HTTP GET failed: apiPath=${apiPath}, status=${response.status}",
         ]
     }
+    log.debug "onAsyncApiComplete: responseData=${responseData}"
     if (callbackMethod != null) {
-        callbackMethod(response_data, apiData)
+        callbackMethod(responseData, apiData)
     }
 }
 
-def asyncApi(String apiPath, Map data = null, Closure callbackMethod) {
+def asyncApi(String apiPath, Map data = null, Closure callbackMethod=null) {
     /* Asynchronous Projector HTTP API call.
      * Invokes an HTTP GET request to the projector REST server with the specified API path.
      *     apiPath: The API subpath path to invoke; e.g. 'v1/execute/power.on'.
@@ -171,9 +177,10 @@ def asyncApi(String apiPath, Map data = null, Closure callbackMethod) {
      * updated device state data (e.g., power state info), updates the driver state
      * to reflect the change.
      */
-    if (logEnable) log.debug "asyncApi: ${apiPath}: starting..."
+    apiUri ="${apiServerURI}/${apiPath}"
+    if (logEnable) log.debug "asyncApi: '${apiUri}' starting..."
     params = [
-        uri: "${apiServerURI}/${apiPath}",
+        uri: apiUri,
     ]
     http_data = [
         apiPath: apiPath,
@@ -183,7 +190,7 @@ def asyncApi(String apiPath, Map data = null, Closure callbackMethod) {
     asynchttpGet(onAsyncApiComplete, params, http_data)
 }
 
-def asyncCommand(String cmd, Map data=None, Closure callbackMethod) {
+def asyncCommand(String cmd, Map data=null, Closure callbackMethod=null) {
     /* Asynchronous projector command.
      * Invokes an async API request to the projector REST server to run the specified
      * projector command.
@@ -215,7 +222,7 @@ List<Map> asyncPowerStatusCallbacks = null
 /* True if an asyncPowerStatus() call is in progress. */
 boolean asyncPowerStatusInProgress = false
 
-def asyncPowerStatus(Map data=None, Closure callbackMethod) {
+def asyncPowerStatus(Map data=null, Closure callbackMethod=null) {
     /* Asynchronous projector power status query.
      * Multiple overlapping calls will be coalesced.
      * Invokes an async API request to determine the projector's power status.
@@ -223,7 +230,7 @@ def asyncPowerStatus(Map data=None, Closure callbackMethod) {
      *     callbackMethod: A closure that will be called when the API call completes. If
      *         null, no callback will be invoked.
      *         The closure will be passed three arguments:
-     *             powerStatus: The projector's power status, as a String.
+     *              rawPowerStatus: The projector's power status, as a String.
      *                 null:        Unknown power status (the request failed)
      *                 "On":        The projector is on
      *                 "Standby":   The projector is in standby (turned off)
@@ -253,19 +260,19 @@ def asyncPowerStatus(Map data=None, Closure callbackMethod) {
     if (!asyncPowerStatusInProgress) {
         asyncPowerStatusInProgress = true
         asyncCommand("power_status.query", data) { response, _data ->
+            if (logEnable) log.debug "Completed power status query, response=${response}"
             asyncPowerStatusInProgress = false
             callbacks = asyncPowerStatusCallbacks
             asyncPowerStatusCallbacks = null
-            updateFromPowerStatus(response)
-            String powerStatus = null
-            if (response.containsKey("response_str")) {
-                powerStatus = response.response_str
+            String rawPowerStatus = null
+            if (response != null && response.containsKey("response_str")) {
+                 rawPowerStatus = response.response_str
             }
             if (callbacks != null) {
                 for (Map callback in callbacks) {
                     callbackMethod = callback.callbackMethod
                     data = callback.data
-                    callbackMethod(powerStatus, response, _data)
+                    callbackMethod(rawPowerStatus, response, _data)
                 }
             }
         }
@@ -283,7 +290,7 @@ List<Map> asyncPowerStatusWaitCallbacks = null
 /* True if an asyncPowerStatusWait() call is in progress. */
 boolean asyncPowerStatusWaitInProgress = false
 
-def asyncPowerStatusWait(Map data=null, Closure callbackMethod) {
+def asyncPowerStatusWait(Map data=null, Closure callbackMethod=null) {
     /* Asynchronously waits for the projector power status to become stable;
      * i.e., not in "Warming" or "Cooling" modes.
      * Note that this call may take considerable time (up to 30 seconds) to
@@ -294,7 +301,7 @@ def asyncPowerStatusWait(Map data=null, Closure callbackMethod) {
      *     callbackMethod: A closure that will be called when the call completes. If
      *         null, no callback will be invoked.
      *         The closure will be passed three arguments:
-     *             powerStatus: The projector's power status, as a String.
+     *              rawPowerStatus: The projector's power status, as a String.
      *                 null:        Unknown power status (the request failed)
      *                 "On":        The projector is on
      *                 "Standby":   The projector is in standby (turned off)
@@ -324,34 +331,22 @@ def asyncPowerStatusWait(Map data=null, Closure callbackMethod) {
             asyncPowerStatusWaitCallbacks = null
             asyncPowerStatusWaitInProgress = false
             updateFromPowerStatus(response)
-            String powerStatus = null
+            String  rawPowerStatus = null
             if (response.containsKey("response_str")) {
-                powerStatus = response.response_str
+                 rawPowerStatus = response.response_str
             }
             if (callbacks != null) {
                 for (Map callback in callbacks) {
                     callbackMethod = callback.callbackMethod
                     data = callback.data
-                    callbackMethod(powerStatus, response, _data)
+                    callbackMethod( rawPowerStatus, response, _data)
                 }
             }
         }
     }
 }
 
-def refresh() {
-    /* Refreshes the device state from the projector.
-     * implementation of Refresh capability
-     * Invokes an async API request to determine the projector's power status,
-     * which will update the device state.
-     */
-    if (logEnable) log.debug("refresh() starting")
-    asyncPowerStatus() { powerStatus, response, data ->
-        if (logEnable) log.debug("refresh() complete")
-    }
-}
-
-def asyncPowerOn(boolean wait_for_final=true, Map data=null, Closure callbackMethod) {
+def asyncPowerOn(boolean wait_for_final=true, Map data=null, Closure callbackMethod=null) {
     /* Asynchronously turns on the projector, optionally waiting for it to warm up.
      *
      * If the projector is cooling down, this command will wait for it to finish
@@ -365,7 +360,7 @@ def asyncPowerOn(boolean wait_for_final=true, Map data=null, Closure callbackMet
      *     callbackMethod: A closure that will be called when the call completes. If
      *         null, no callback will be invoked.
      *         The closure will be passed three arguments:
-     *             powerStatus: The projector's power status, as a String.
+     *              rawPowerStatus: The projector's power status, as a String.
      *                 null:        Unknown power status (the request failed)
      *                 "On":        The projector is on
      *                 "Standby":   The projector is in standby (turned off)
@@ -396,27 +391,25 @@ def asyncPowerOn(boolean wait_for_final=true, Map data=null, Closure callbackMet
     }
 }
 
-def asyncPowerOff(boolean wait_for_final=true, Map data=null, Closure callbackMethod) {
+def asyncPowerOff(boolean wait_for_final=true, Map data=null, Closure callbackMethod=null) {
     String cmd = wait_for_final ? "off" : "start_off"
     asyncCommand(cmd, data) { response, _data ->
-        updateFromPowerStatus(response)
-        String powerStatus = null
+        String  rawPowerStatus = null
         if (response.containsKey("response_str")) {
-            powerStatus = response.response_str
+             rawPowerStatus = response.response_str
         }
         if (callbackMethod != null) {
-            callbackMethod(powerStatus, response, _data)
+            callbackMethod( rawPowerStatus, response, _data)
         }
     }
 }
 
-def updated() {
-    /* Called by Hubitat when the device configuration is updated.
-     * If debug logging is enabled, turns it off after 30 minutes.
+def logsOff() {
+    /* Turns off debug logging.
+     * Called after 30 minutes if debug logging is enabled.
      */
-    log.info "updated..."
-    log.warn "debug logging is: ${logEnable == true}"
-    if (logEnable) runIn(1800, logsOff)
+    log.warn ("Disabling logging after timeout")
+      device.updateSetting("logEnable",[value:"false",type:"bool"])
 }
 
 def parse(String description) {
@@ -432,11 +425,7 @@ def on() {
      * Invokes an async API request to turn on the projector.
      */
     if (logEnable) log.debug "Sending ON command to projector..."
-    try {
-        asyncPowerOn()
-    } catch (Exception e) {
-        log.warn "Call to ON command failed: ${e.message}"
-    }
+    asyncPowerOn(wait_for_final=false)
 }
 
 def off() {
@@ -444,36 +433,54 @@ def off() {
      * implementation of Switch capability
      * Invokes an async API request to turn off the projector.
      */
-    if (logEnable) log.debug "Sending OF command to projector..."
-    try {
-        asyncCommand("off") { response, data ->
-            if (response.status == "OK") {
-                sendEvent(name: "switch", value: "off", isStateChange: true)
-            }
-        }
-    } catch (Exception e) {
-        log.warn "Call to ON command failed: ${e.message}"
-    }
+    if (logEnable) log.debug "Sending OFF command to projector..."
+    asyncPowerOff(wait_for_final=false)
 }
 
-def schedulePolling() {
-    nextInterval = pollingInterval
-    powerStatus = state.rawPowerStatus
-    if (powerStatus == "Warming" || powerStatus == "Cooling") {
-        nextInterval = transitionPollingInterval
-    }
-    runIn(nextInterval, handlePollPower)
-}
-
-def handlePollPower() {
+def handlePollPower(Closure callbackMethod=null) {
     /* Called at regular intervals to poll the projector's power status.
      * Invokes an async API request to determine the projector's power status.
      * If the projector is warming up or cooling down, polling is done at a high
      * frequency until the projector's power status stabilizes.
      */
     if (logEnable) log.debug "Polling projector power status..."
-     asyncPowerStatus() { powerStatus, response, data ->
-        if (logEnable) log.debug "Completed polling power status: ${powerStatus}"
+    asyncPowerStatus(data=null) { rawPowerStatus, response, data ->
+        if (logEnable) log.debug "Completed polling power status: ${rawPowerStatus}"
+        if (callbackMethod != null) {
+            callbackMethod()
+        }
+    }
+}
+
+def schedulePolling() {
+    nextInterval = pollingInterval
+     rawPowerStatus = state.rawPowerStatus
+    if ( rawPowerStatus == "Warming" ||  rawPowerStatus == "Cooling") {
+        nextInterval = transitionPollingInterval
+    }
+    runIn(nextInterval, handlePollPower)
+}
+
+
+def updated() {
+    /* Called by Hubitat when the device configuration is updated.
+     * If debug logging is enabled, turns it off after 30 minutes.
+     */
+    log.info "updated..."
+    log.warn "debug logging is: ${logEnable == true}"
+    if (logEnable) runIn(1800, logsOff)
+    handlePollPower()
+}
+
+def refresh() {
+    /* Refreshes the device state from the projector.
+     * implementation of Refresh capability
+     * Invokes an async API request to determine the projector's power status,
+     * which will update the device state.
+     */
+    if (logEnable) log.debug("refresh() starting")
+    asyncPowerStatus(data=null) { rawPowerStatus, response, data ->
+        if (logEnable) log.debug("refresh() complete")
     }
 }
 
