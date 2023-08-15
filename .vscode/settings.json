@@ -9,5 +9,8 @@
       },
     "files.exclude": {
       "/trash": true
-    }
+  },
+  "[groovy]": {
+    "editor.tabSize": 4
+  },
 }

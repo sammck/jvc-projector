@@ -87,6 +87,8 @@ async def execute_one_command(client: JvcProjectorClient, cmd_name: str) -> Json
         response = await client.power_off_wait()
     elif cmd_name == "start_off":
         response = await client.power_off_wait(wait_for_final=False)
+    elif cmd_name == "power_status_wait":
+        response = await client.power_status_wait()
     else:
         response = await client.transact_by_name(cmd_name)
     if not response is None:

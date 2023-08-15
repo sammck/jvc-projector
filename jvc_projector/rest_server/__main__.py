@@ -17,7 +17,7 @@ def run() -> int:
     logging.basicConfig(level=logging.DEBUG)
 
     from jvc_projector.rest_server.app import proj_api
-    uvicorn.run(proj_api, log_config=None)
+    uvicorn.run(proj_api, host="0.0.0.0", port=8000, log_config=None)
     return 0
 
 if __name__ == "__main__":
