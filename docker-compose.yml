@@ -59,7 +59,7 @@ version: "3.3"
 #       and will eventually throttle you for a week at a time.
 services:
   jvc-projector:
-    image: "jvc-projector"
+    image: "sammck/jvc-projector"
     build: .
 
     environment:
