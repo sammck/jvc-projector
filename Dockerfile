@@ -22,7 +22,7 @@ COPY ./jvc_projector /app/jvc_projector
 
 RUN poetry config virtualenvs.in-project true
 
-EXPOSE 8000/tcp
+EXPOSE 80/tcp
 
 RUN poetry install --no-dev --no-interaction --no-ansi -vvv
 
