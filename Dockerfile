@@ -26,4 +26,4 @@ EXPOSE 8000/tcp
 
 RUN poetry install --no-dev --no-interaction --no-ansi -vvv
 
-CMD ["/app/.venv/bin/jvc-projector-rest-server"]
+CMD [ "/app/.venv/bin/uvicorn", "jvc_projector.rest_server.app:proj_api", "--host", "0.0.0.0", "--port", "80" ]
