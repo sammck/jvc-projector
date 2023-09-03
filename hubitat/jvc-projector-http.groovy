@@ -62,7 +62,7 @@ Map successfulApiResponse(Map response_data) {
     return response_data
 }
 
-def updatePowerStatus(String  rawPowerStatus) {
+def updatePowerStatus(String rawPowerStatus) {
     /* Updates the driver state from a detected projector power status.
      * If the power status has changed, sends "powerStatus" and "switch" events.
      * For the purposes of the "switch" capabiility, the projector is considered
