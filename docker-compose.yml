@@ -110,7 +110,7 @@ services:
       # -----------------------------------------
       # A router for http://<common-lan-local-hostname>/${APP_NAME:-jvc-projector}, on the local LAN entrypoint only
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.entrypoints=lanweb"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=`${SHARED_LAN_APP_DNS_NAME}`, `${HUB_HOSTNAME}`,`${HUB_HOSTNAME2}`,`${HUB_LAN_IP}`,`localhost`,`127.0.0.1`) && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
+      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=`Host(${SHARED_LAN_APP_DNS_NAME}`,`${HUB_HOSTNAME}`,`${HUB_HOSTNAME2}`,`${HUB_LAN_IP}`,`localhost`,`127.0.0.1`) && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
       # Strip the prefix
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.middlewares=${APP_NAME:-jvc-projector}-strip-prefix"
 
