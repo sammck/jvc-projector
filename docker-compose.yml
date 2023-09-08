@@ -93,8 +93,8 @@ services:
       - "/${APP_NAME:-jvc-projector}"
 
     ports:
-      # []
-      - "8099:80"             # Expose the service on port 80 to the host on port 8099, for testing purposes only
+      []
+      # - "8099:80"             # Expose the service on port 80 to the host on port 8099, for testing purposes only
 
     networks:
       - traefik                # The network through which traefik forwards requests to our service
