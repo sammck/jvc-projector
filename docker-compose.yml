@@ -17,30 +17,13 @@ version: "3.3"
 #
 #   === Variables below are provided by Portainer when launched on tp_hub, and do not need to be added to launch environment variables ===
 #
-#    SHARED_LAN_APP_DNS_NAME
-#                               The fully qualified public DNS domain that the private-only shared apps will run on.
-#                               If launched by Portainer on tp_hub, this variable is provided by Portainer's own
-#                               environment, and does not need to be added to launch environment variables.
+#    SHARED_LAN_APP_HTTP_HOST_RULE
+#                            The "Host" Traefik rule expression that will match all HTTP hostnames for the private LAN-only
+#                                 apps.
 #
-#    SHARED_LAN_APP_CERT_RESOLVER
-#                            "prod" or "staging".  The certificate resolver to use for ${SHARED_LAN_APP_DNS_NAME}
-#                               If launched by Portainer on tp_hub, this variable is provided by Portainer's own
-#                               environment, and does not need to be added to launch environment variables.
-#
-#    HUB_HOSTNAME               The linux hostname of the hub host machine. Used as a host name match for HTTP
-#                               path-based routing on the LAN only.
-#                               If launched by Portainer on tp_hub, this variable is provided by Portainer's own
-#                               environment, and does not need to be added to launch environment variables.
-#
-#    HUB_HOSTNAME2              Alternate hostname of the hub hostname. Normally this is "${HUB_HOSTNAME}.local".
-#                               Used as a host name match for HTTP path-based routing on the LAN only.
-#                               If launched by Portainer on tp_hub, this variable is provided by Portainer's own
-#                               environment, and does not need to be added to launch environment variables.
-#
-#    HUB_LAN_IP                 The LAN IP address of the hub host machine. Used as a host name match for HTTP
-#                               path-based routing on the LAN only.
-#                               If launched by Portainer on tp_hub, this variable is provided by Portainer's own
-#                               environment, and does not need to be added to launch environment variables.
+#    SHARED_LAN_APP_HTTPS_HOST_RULE
+#                            The "Host" Traefik rule expression that will match all HTTPS hostnames for the private LAN-only
+#                                 apps.
 #
 # This stack serves:
 #
@@ -110,15 +93,14 @@ services:
       # -----------------------------------------
       # A router for http://<common-lan-local-hostname>/${APP_NAME:-jvc-projector}, on the local LAN entrypoint only
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.entrypoints=lanweb"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=Host(`${SHARED_LAN_APP_DNS_NAME}`,`${HUB_HOSTNAME}`,`${HUB_HOSTNAME2}`,`${HUB_LAN_IP}`,`localhost`,`127.0.0.1`) && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
+      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=${SHARED_LAN_APP_HTTP_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
       # Strip the prefix
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.middlewares=${APP_NAME:-jvc-projector}-strip-prefix"
 
       # -----------------------------------------
       # A router for https://${SHARED_LAN_APP_DNS_NAME}/${APP_NAME:-jvc-projector}, on the local LAN entrypoint only
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.entrypoints=lanwebsecure"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.tls.certresolver=${SHARED_LAN_APP_CERT_RESOLVER}"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.rule=Host(`${SHARED_LAN_APP_DNS_NAME}`) && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
+      - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.rule=${SHARED_LAN_APP_HTTPS_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
       # Strip the prefix
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.middlewares=${APP_NAME:-jvc-projector}-strip-prefix"
       # -----------------------------------------
