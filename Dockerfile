@@ -1,29 +1,23 @@
-FROM python:3.10-slim-buster
+FROM python:3.13-slim-trixie
 
-ENV PATH="/root/.local/bin:${PATH}"
+# Note: this Dockerfile intentionally avoids BuildKit-only features (e.g., RUN --mount) so that it can also
+# be built with Docker's classic builder, which Portainer uses when deploying through the Portainer Agent.
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=true
 
-
-RUN curl -sSL 'https://install.python-poetry.org' | python3 - && poetry --version
-
-
-RUN apt-get remove -y curl \
- && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
- && apt-get clean -y && rm -rf /var/lib/apt/lists/* \
- && rm -rf /var/lib/apt/lists/*
-
-COPY poetry.lock pyproject.toml README.md /app/
+RUN pip install "poetry==2.5.1"
 
 WORKDIR /app
 
+# Install dependencies first, so that this layer is cached across source-only changes
+COPY poetry.lock pyproject.toml README.md /app/
+RUN poetry install --only main --no-root --no-ansi
+
 COPY ./jvc_projector /app/jvc_projector
 
-RUN poetry config virtualenvs.in-project true
-
 EXPOSE 80/tcp
-
-RUN poetry install --no-dev --no-interaction --no-ansi -vvv
 
 CMD [ "/app/.venv/bin/uvicorn", "jvc_projector.rest_server.app:proj_api", "--host", "0.0.0.0", "--port", "80" ]

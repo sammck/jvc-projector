@@ -1,5 +1,3 @@
-version: "3.3"
-
 # docker-compose.yml configuration for a simple HTTP service container
 # that sits behind traefik running in a tp_hub environment and provides
 # a REST API for control of a JVC projector on the local LAN.
@@ -16,12 +14,14 @@ version: "3.3"
 #                               If ommitted, no authentication is required.
 #
 #   === Variables below are provided by Portainer when launched on tp_hub, and do not need to be added to launch environment variables ===
+#   (Portainer only passes its own environment variables named PORTAINER_* through to stacks, so tp_hub injects its
+#   shared variables with that prefix.)
 #
-#    SHARED_LAN_APP_HTTP_HOST_RULE
+#    PORTAINER_SHARED_LAN_APP_HTTP_HOST_RULE
 #                            The "Host" Traefik rule expression that will match all HTTP hostnames for the private LAN-only
 #                                 apps.
 #
-#    SHARED_LAN_APP_HTTPS_HOST_RULE
+#    PORTAINER_SHARED_LAN_APP_HTTPS_HOST_RULE
 #                            The "Host" Traefik rule expression that will match all HTTPS hostnames for the private LAN-only
 #                                 apps.
 #
@@ -57,7 +57,9 @@ version: "3.3"
 #
 services:
   jvc-projector:
-    image: "sammck/jvc-projector"
+    # Built locally from this repository (e.g., by Portainer when deployed as a git stack); never pulled from a registry.
+    image: "jvc-projector:local"
+    pull_policy: build
     build: .
 
     environment:
@@ -93,14 +95,14 @@ services:
       # -----------------------------------------
       # A router for http://<common-lan-local-hostname>/${APP_NAME:-jvc-projector}, on the local LAN entrypoint only
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.entrypoints=lanweb"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=${SHARED_LAN_APP_HTTP_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
+      - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.rule=${PORTAINER_SHARED_LAN_APP_HTTP_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
       # Strip the prefix
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-http-private-path.middlewares=${APP_NAME:-jvc-projector}-strip-prefix"
 
       # -----------------------------------------
       # A router for https://${SHARED_LAN_APP_DNS_NAME}/${APP_NAME:-jvc-projector}, on the local LAN entrypoint only
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.entrypoints=lanwebsecure"
-      - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.rule=${SHARED_LAN_APP_HTTPS_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
+      - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.rule=${PORTAINER_SHARED_LAN_APP_HTTPS_HOST_RULE} && PathPrefix(`/${APP_NAME:-jvc-projector}`)"
       # Strip the prefix
       - "traefik.http.routers.${APP_NAME:-jvc-projector}-https-shared-lan-private-path.middlewares=${APP_NAME:-jvc-projector}-strip-prefix"
       # -----------------------------------------
